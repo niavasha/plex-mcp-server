@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/yourusername/plex-mcp-server/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Plex API Documentation
+    url: https://support.plex.tv/articles/201638786-plex-media-server-url-commands/
+    about: Official Plex API documentation
+  - name: Model Context Protocol
+    url: https://modelcontextprotocol.io/
+    about: Learn more about the MCP protocol
