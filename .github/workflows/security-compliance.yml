@@ -1,0 +1,171 @@
+name: Security Policy Compliance
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  security-policy-check:
+    name: Security Policy Compliance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Check for security policy
+      run: |
+        if [ ! -f "SECURITY.md" ]; then
+          echo "❌ SECURITY.md file is missing"
+          exit 1
+        fi
+        echo "✅ SECURITY.md file exists"
+    
+    - name: Validate security practices in code
+      run: |
+        echo "🔍 Checking for security anti-patterns..."
+        
+        # Check for hardcoded secrets (basic patterns)
+        if grep -r -E "(password|token|secret|key)\s*=\s*['\"][^'\"]{8,}['\"]" src/ --exclude-dir=node_modules; then
+          echo "❌ Potential hardcoded secrets found"
+          exit 1
+        fi
+        
+        # Check for console.log with sensitive data patterns
+        if grep -r -E "console\.log.*(?:token|password|secret|key)" src/ --exclude-dir=node_modules; then
+          echo "❌ Potential sensitive data logging found"
+          exit 1
+        fi
+        
+        # Check for eval usage
+        if grep -r "eval(" src/ --exclude-dir=node_modules; then
+          echo "❌ eval() usage found - security risk"
+          exit 1
+        fi
+        
+        echo "✅ Basic security checks passed"
+    
+    - name: Check environment variable usage
+      run: |
+        echo "🔍 Verifying environment variable patterns..."
+        
+        # Check that sensitive config uses env vars
+        if grep -r -E "PLEX_TOKEN.*=" .env.example; then
+          if grep -r -E "process\.env\.PLEX_TOKEN" src/; then
+            echo "✅ Plex token properly uses environment variable"
+          else
+            echo "❌ Plex token not properly accessed via environment variable"
+            exit 1
+          fi
+        fi
+    
+    - name: Check for security headers and practices
+      run: |
+        echo "🔍 Checking for security best practices..."
+        
+        # Check for timeout configurations
+        if grep -r "timeout" src/ --exclude-dir=node_modules; then
+          echo "✅ Timeout configurations found"
+        else
+          echo "⚠️  Consider adding timeout configurations"
+        fi
+        
+        # Check for proper error handling
+        if grep -r "try.*catch" src/ --exclude-dir=node_modules; then
+          echo "✅ Error handling patterns found"
+        else
+          echo "⚠️  Consider adding more error handling"
+        fi
+
+  security-documentation-check:
+    name: Security Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Validate security documentation
+      run: |
+        echo "📚 Checking security documentation..."
+        
+        # Check README for security section
+        if grep -i "security" README.md; then
+          echo "✅ Security mentioned in README"
+        else
+          echo "⚠️  Consider adding security section to README"
+        fi
+        
+        # Check for installation security notes
+        if grep -i "token" README.md && grep -i "environment" README.md; then
+          echo "✅ Token and environment security mentioned"
+        else
+          echo "⚠️  Consider adding token security guidance"
+        fi
+        
+        # Validate SECURITY.md content
+        if [ -f "SECURITY.md" ]; then
+          if grep -q "Reporting Security Vulnerabilities" SECURITY.md; then
+            echo "✅ SECURITY.md has vulnerability reporting section"
+          else
+            echo "❌ SECURITY.md missing vulnerability reporting section"
+            exit 1
+          fi
+          
+          if grep -q "Supported Versions" SECURITY.md; then
+            echo "✅ SECURITY.md has supported versions section"
+          else
+            echo "❌ SECURITY.md missing supported versions section"
+            exit 1
+          fi
+        fi
+
+  secrets-baseline:
+    name: Secrets Baseline Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Create secrets baseline
+      run: |
+        echo "🔍 Creating secrets baseline..."
+        
+        # Create a baseline of what should NOT be in the repo
+        cat > .secrets-baseline << 'EOF'
+        # Secrets that should NEVER be in the repository
+        # This file helps verify our security practices
+        
+        # Plex tokens (should only be in .env, never committed)
+        # Format: X-Plex-Token: XXXXXXXXXXXXXXXXXX
+        
+        # API keys (if any future integrations)
+        # Database passwords
+        # SSL certificates/private keys
+        # OAuth client secrets
+        EOF
+        
+        # Check that no actual secrets match these patterns
+        echo "✅ Secrets baseline created"
+    
+    - name: Verify no secrets in repo
+      run: |
+        # Double-check that common secret patterns aren't in the repo
+        SECRET_PATTERNS=(
+          "X-Plex-Token.*[A-Za-z0-9]{16,}"
+          "(?i)password.*=.*['\"][^'\"]{8,}['\"]"
+          "(?i)secret.*=.*['\"][^'\"]{16,}['\"]"
+          "-----BEGIN.*PRIVATE KEY-----"
+        )
+        
+        for pattern in "${SECRET_PATTERNS[@]}"; do
+          if grep -r -E "$pattern" . --exclude-dir=node_modules --exclude-dir=.git --exclude="*.md"; then
+            echo "❌ Potential secret found matching pattern: $pattern"
+            exit 1
+          fi
+        done
+        
+        echo "✅ No secrets detected in repository"

@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/yourusername/plex-mcp-server/discussions
+    url: https://github.com/niavasha/plex-mcp-server/discussions
     about: Ask questions and discuss ideas with the community
   - name: Plex API Documentation
     url: https://support.plex.tv/articles/201638786-plex-media-server-url-commands/
