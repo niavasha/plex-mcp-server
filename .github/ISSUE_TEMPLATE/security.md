@@ -1,9 +1,10 @@
 ---
 name: Security Issue
 about: Report a security vulnerability (use this for minor issues only)
-title: '[SECURITY] '
-labels: 'security'
+title: "[SECURITY] "
+labels: ''
 assignees: ''
+
 ---
 
 **⚠️ IMPORTANT: For serious security vulnerabilities, please follow our [Security Policy](../SECURITY.md) and report privately.**
