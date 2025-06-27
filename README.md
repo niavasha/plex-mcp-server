@@ -2,6 +2,10 @@
 
 A **Model Context Protocol (MCP)** server that provides AI assistants with comprehensive access to your Plex Media Server. Query your libraries, get viewing statistics, and manage your media through natural language interactions.
 
+<a href="https://glama.ai/mcp/servers/@niavasha/plex-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@niavasha/plex-mcp-server/badge" alt="Plex Server MCP server" />
+</a>
+
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
