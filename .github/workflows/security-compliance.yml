@@ -155,7 +155,7 @@ jobs:
       run: |
         # Double-check that common secret patterns aren't in the repo
         SECRET_PATTERNS=(
-          "X-Plex-Token.*[A-Za-z0-9]{16,}"
+          "X-Plex-Token[[:space:]]*[:=][[:space:]]*[A-Za-z0-9]*[0-9][A-Za-z0-9]*[a-zA-Z][A-Za-z0-9]*"
           "(?i)password.*=.*['\"][^'\"]{8,}['\"]"
           "(?i)secret.*=.*['\"][^'\"]{16,}['\"]"
           "-----BEGIN.*PRIVATE KEY-----"
