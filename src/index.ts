@@ -25,6 +25,8 @@ class PlexMCPServer {
       {
         name: "plex-server",
         version: "0.1.0",
+      },
+      {
         capabilities: {
           tools: {},
         },
