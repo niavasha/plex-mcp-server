@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "tsx src/index.ts"
+    "start:trakt": "node build/plex-trakt-server.js",
+    "dev": "tsx src/index.ts",
+    "dev:trakt": "tsx src/plex-trakt-server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
@@ -22,6 +24,6 @@
     "typescript": "^5.0.0"
   },
   "keywords": ["mcp", "plex", "ai", "context"],
-  "author": "Your Name",
+  "author": "niavasha",
   "license": "MIT"
 }
