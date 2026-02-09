@@ -8,13 +8,10 @@ import { PlexToTraktMapper, PlexMovie, PlexEpisode, PlexWatchSession } from './m
 import {
   SyncResult,
   SyncOptions,
-  SyncConflict,
-  ConflictResolution,
-  TraktSyncResult,
-  TraktWatchedMovie,
-  TraktWatchedShow,
   TraktScrobbleResponse
 } from './types.js';
+import { sleep, chunkArray } from '../shared/utils.js';
+import { DEFAULT_BATCH_SIZE, INCREMENTAL_BATCH_SIZE, TRAKT_BATCH_DELAY_MS } from './constants.js';
 
 export interface PlexAPIClient {
   // Methods we need from the Plex client to perform sync
@@ -48,7 +45,7 @@ export class TraktSyncEngine {
       autoResolveConflicts: true,
       includeProgress: false,
       syncRatings: false,
-      batchSize: 50,
+      batchSize: DEFAULT_BATCH_SIZE,
       ...options
     };
 
@@ -127,7 +124,7 @@ export class TraktSyncEngine {
 
       // Sync movies in batches
       if (validMovies.length > 0 && !options.dryRun) {
-        const movieBatches = this.chunkArray(validMovies, options.batchSize);
+        const movieBatches = chunkArray(validMovies, options.batchSize);
         for (const batch of movieBatches) {
           try {
             const traktMovies = this.mapper.mapPlexMoviesForSync(batch);
@@ -151,7 +148,7 @@ export class TraktSyncEngine {
           }
 
           // Small delay between batches to respect rate limits
-          await this.sleep(1000);
+          await sleep(TRAKT_BATCH_DELAY_MS);
         }
       }
 
@@ -249,7 +246,7 @@ export class TraktSyncEngine {
     // filter items by lastViewedAt/updatedAt timestamps
     return this.performFullSync({
       ...options,
-      batchSize: 25 // Smaller batches for incremental
+      batchSize: INCREMENTAL_BATCH_SIZE
     });
   }
 
@@ -353,15 +350,4 @@ export class TraktSyncEngine {
     target.errors.push(...source.errors);
   }
 
-  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += chunkSize) {
-      chunks.push(array.slice(i, i + chunkSize));
-    }
-    return chunks;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
 }

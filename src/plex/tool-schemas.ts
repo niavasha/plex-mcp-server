@@ -189,7 +189,7 @@ export const PLEX_CORE_TOOL_SCHEMAS = [
 ];
 
 /** Extended analytics tools (5 tools) — only in standalone Plex server */
-export const PLEX_EXTENDED_TOOL_SCHEMAS = [
+const PLEX_EXTENDED_TOOL_SCHEMAS = [
   GET_FULLY_WATCHED_SCHEMA,
   GET_WATCH_STATS_SCHEMA,
   GET_USER_STATS_SCHEMA,

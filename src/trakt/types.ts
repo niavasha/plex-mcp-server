@@ -324,8 +324,8 @@ export interface TraktRateLimitError {
 // Sync Engine Types
 export interface SyncConflict {
   type: 'watch_date' | 'play_count' | 'progress';
-  plexData: any;
-  traktData: any;
+  plexData: Record<string, unknown>;
+  traktData: Record<string, unknown>;
   mediaId: string;
   mediaTitle: string;
 }
@@ -333,7 +333,7 @@ export interface SyncConflict {
 export interface ConflictResolution {
   conflictId: string;
   resolution: 'plex_wins' | 'trakt_wins' | 'merge' | 'skip';
-  resolvedValue?: any;
+  resolvedValue?: Record<string, unknown>;
 }
 
 export interface SyncResult {

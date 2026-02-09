@@ -8,6 +8,8 @@ import {
   TraktConfig,
   TraktTokens,
   TraktUser,
+  TraktMovie,
+  TraktShow,
   TraktWatchedMovie,
   TraktWatchedShow,
   TraktScrobbleItem,
@@ -17,20 +19,34 @@ import {
   TraktUserStats,
   TraktProgress,
   TraktAPIError,
-  TraktRateLimitError
 } from './types.js';
+import {
+  TRAKT_OAUTH_URL,
+  TRAKT_API_TIMEOUT,
+  TRAKT_INITIAL_RATE_LIMIT_DELAY,
+  TRAKT_DEFAULT_RETRY_AFTER,
+  TRAKT_RATE_LIMIT_BACKOFF_MULTIPLIER,
+} from './constants.js';
+import { sleep } from '../shared/utils.js';
+
+export interface TraktSearchResult {
+  type: string;
+  score: number;
+  movie?: TraktMovie;
+  show?: TraktShow;
+}
 
 export class TraktClient {
   private config: TraktConfig;
   private http: AxiosInstance;
-  private rateLimitDelay: number = 1000; // Start with 1 second between requests
+  private rateLimitDelay: number = TRAKT_INITIAL_RATE_LIMIT_DELAY;
   private lastRequestTime: number = 0;
 
   constructor(config: TraktConfig) {
     this.config = config;
     this.http = axios.create({
       baseURL: config.baseUrl,
-      timeout: 10000,
+      timeout: TRAKT_API_TIMEOUT,
       headers: {
         'Content-Type': 'application/json',
         'trakt-api-version': '2',
@@ -49,7 +65,7 @@ export class TraktClient {
       const now = Date.now();
       const timeSinceLastRequest = now - this.lastRequestTime;
       if (timeSinceLastRequest < this.rateLimitDelay) {
-        await this.sleep(this.rateLimitDelay - timeSinceLastRequest);
+        await sleep(this.rateLimitDelay - timeSinceLastRequest);
       }
       this.lastRequestTime = Date.now();
 
@@ -68,12 +84,12 @@ export class TraktClient {
       async (error: AxiosError) => {
         if (error.response?.status === 429) {
           // Rate limited - increase delay and retry
-          const retryAfter = parseInt(error.response.headers['retry-after'] || '60');
-          this.rateLimitDelay = Math.max(this.rateLimitDelay * 2, retryAfter * 1000);
-          
+          const retryAfter = parseInt(error.response.headers['retry-after'] || String(TRAKT_DEFAULT_RETRY_AFTER));
+          this.rateLimitDelay = Math.max(this.rateLimitDelay * TRAKT_RATE_LIMIT_BACKOFF_MULTIPLIER, retryAfter * 1000);
+
           console.warn(`Trakt rate limit hit. Waiting ${retryAfter}s before retry. New delay: ${this.rateLimitDelay}ms`);
-          
-          await this.sleep(retryAfter * 1000);
+
+          await sleep(retryAfter * 1000);
           return this.http.request(error.config!);
         }
 
@@ -105,10 +121,6 @@ export class TraktClient {
     );
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
   /**
    * Generate OAuth authorization URL
    */
@@ -120,7 +132,7 @@ export class TraktClient {
       state: state || 'default'
     });
 
-    return `https://api.trakt.tv/oauth/authorize?${params.toString()}`;
+    return `${TRAKT_OAUTH_URL}?${params.toString()}`;
   }
 
   /**
@@ -284,7 +296,7 @@ export class TraktClient {
   /**
    * Search for movies/shows on Trakt
    */
-  async search(query: string, type?: 'movie' | 'show', year?: number): Promise<any[]> {
+  async search(query: string, type?: 'movie' | 'show', year?: number): Promise<TraktSearchResult[]> {
     const params = new URLSearchParams({ query });
     if (type) params.append('type', type);
     if (year) params.append('year', year.toString());
@@ -296,7 +308,7 @@ export class TraktClient {
   /**
    * Get movie details by Trakt ID
    */
-  async getMovie(id: string | number): Promise<any> {
+  async getMovie(id: string | number): Promise<TraktMovie> {
     const response = await this.http.get(`/movies/${id}?extended=full`);
     return response.data;
   }
@@ -304,7 +316,7 @@ export class TraktClient {
   /**
    * Get show details by Trakt ID
    */
-  async getShow(id: string | number): Promise<any> {
+  async getShow(id: string | number): Promise<TraktShow> {
     const response = await this.http.get(`/shows/${id}?extended=full`);
     return response.data;
   }

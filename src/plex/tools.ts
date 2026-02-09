@@ -6,7 +6,8 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { PlexClient } from "./client.js";
 import { MCPResponse } from "./types.js";
-import { DEFAULT_LIMITS, COMPLETION_THRESHOLD } from "./constants.js";
+import { DEFAULT_LIMITS, COMPLETION_THRESHOLD, PLEX_CONTAINER_SIZE, SUMMARY_PREVIEW_LENGTH } from "./constants.js";
+import { truncate } from "../shared/utils.js";
 
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
@@ -265,9 +266,7 @@ export class PlexTools {
               ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
               : 100,
           rating: item.rating,
-          summary:
-            ((item.summary as string) || "").substring(0, 200) +
-            (((item.summary as string) || "").length > 200 ? "..." : ""),
+          summary: truncate((item.summary as string) || "", SUMMARY_PREVIEW_LENGTH),
         })),
         totalCount: items.length,
         libraryKey: libraryKey || "all",
@@ -293,7 +292,7 @@ export class PlexTools {
 
     try {
       const data = await this.client.makeRequest("/status/sessions/history/all", {
-        "X-Plex-Container-Size": 1000,
+        "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
       });
       const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
       const sessions = container.MediaContainer?.Metadata || [];
@@ -637,9 +636,7 @@ export class PlexTools {
         lastViewedAt: item.lastViewedAt,
         duration: item.duration,
         rating: item.rating,
-        summary:
-          ((item.summary as string) || "").substring(0, 200) +
-          (((item.summary as string) || "").length > 200 ? "..." : ""),
+        summary: truncate((item.summary as string) || "", SUMMARY_PREVIEW_LENGTH),
       })),
       totalCount: allWatchedItems.length,
       note: "Retrieved using fallback method - showing items with any view count",

@@ -8,12 +8,12 @@ import { TraktSyncEngine, PlexAPIClient } from './sync.js';
 import { PlexToTraktMapper } from './mapper.js';
 import {
   TraktConfig,
-  TraktAuthStatus,
-  TraktUserStats,
-  SyncResult,
   SyncOptions,
   MCPStatsResponse
 } from './types.js';
+import { DEFAULT_TRAKT_API_URL, DEFAULT_BATCH_SIZE, ACHIEVEMENT_THRESHOLDS, TRAKT_PREVIEW_LIMIT } from './constants.js';
+import { SUMMARY_PREVIEW_LENGTH } from '../plex/constants.js';
+import { truncate } from '../shared/utils.js';
 
 export class TraktMCPFunctions {
   private traktClient!: TraktClient;
@@ -33,7 +33,7 @@ export class TraktMCPFunctions {
     if (this.isInitialized) return;
 
     const config: TraktConfig = {
-      baseUrl: process.env.TRAKT_BASE_URL || 'https://api-v2launch.trakt.tv',
+      baseUrl: process.env.TRAKT_BASE_URL || DEFAULT_TRAKT_API_URL,
       clientId: process.env.TRAKT_CLIENT_ID || '',
       clientSecret: process.env.TRAKT_CLIENT_SECRET || '',
       redirectUri: process.env.TRAKT_REDIRECT_URI || 'urn:ietf:wg:oauth:2.0:oob',
@@ -54,7 +54,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_authenticate
    * Start OAuth authentication flow
    */
-  async traktAuthenticate(state?: string): Promise<any> {
+  async traktAuthenticate(state?: string): Promise<Record<string, unknown>> {
     this.initializeTraktClient();
 
     try {
@@ -83,7 +83,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_complete_auth
    * Complete OAuth flow with authorization code
    */
-  async traktCompleteAuth(code: string): Promise<any> {
+  async traktCompleteAuth(code: string): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       return {
         success: false,
@@ -126,7 +126,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_get_auth_status
    * Check current authentication status
    */
-  async traktGetAuthStatus(): Promise<any> {
+  async traktGetAuthStatus(): Promise<Record<string, unknown>> {
     this.initializeTraktClient();
 
     try {
@@ -167,7 +167,7 @@ export class TraktMCPFunctions {
     dryRun?: boolean;
     batchSize?: number;
     includeProgress?: boolean;
-  } = {}): Promise<any> {
+  } = {}): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
@@ -176,7 +176,7 @@ export class TraktMCPFunctions {
       const syncOptions: Partial<SyncOptions> = {
         direction: 'plex-to-trakt',
         dryRun: options.dryRun || false,
-        batchSize: options.batchSize || 50,
+        batchSize: options.batchSize || DEFAULT_BATCH_SIZE,
         includeProgress: options.includeProgress || false,
         autoResolveConflicts: true
       };
@@ -210,7 +210,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_sync_from_trakt
    * Get Trakt watch history for comparison
    */
-  async traktSyncFromTrakt(): Promise<any> {
+  async traktSyncFromTrakt(): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
@@ -226,17 +226,17 @@ export class TraktMCPFunctions {
         trakt_data: {
           movies: {
             count: watchedMovies.length,
-            items: watchedMovies.slice(0, 10).map(item => ({
+            items: watchedMovies.slice(0, TRAKT_PREVIEW_LIMIT).map(item => ({
               title: item.movie.title,
               year: item.movie.year,
               plays: item.plays,
               lastWatched: item.last_watched_at
             })),
-            totalShowing: Math.min(10, watchedMovies.length)
+            totalShowing: Math.min(TRAKT_PREVIEW_LIMIT, watchedMovies.length)
           },
           shows: {
             count: watchedShows.length,
-            items: watchedShows.slice(0, 10).map(item => {
+            items: watchedShows.slice(0, TRAKT_PREVIEW_LIMIT).map(item => {
               const totalEpisodes = item.seasons.reduce((sum, season) => 
                 sum + season.episodes.length, 0);
               return {
@@ -246,7 +246,7 @@ export class TraktMCPFunctions {
                 lastWatched: item.last_watched_at
               };
             }),
-            totalShowing: Math.min(10, watchedShows.length)
+            totalShowing: Math.min(TRAKT_PREVIEW_LIMIT, watchedShows.length)
           }
         },
         message: 'Retrieved watch history from Trakt (comparison data)'
@@ -263,7 +263,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_get_user_stats
    * Get enhanced user statistics from Trakt
    */
-  async traktGetUserStats(userId?: number): Promise<any> {
+  async traktGetUserStats(userId?: number): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
@@ -288,22 +288,22 @@ export class TraktMCPFunctions {
           recentActivity: [], // Would need recent activity endpoint
           milestones: [
             {
-              type: '100 Movies Watched',
-              achieved: stats.movies.watched >= 100,
+              type: `${ACHIEVEMENT_THRESHOLDS.movies} Movies Watched`,
+              achieved: stats.movies.watched >= ACHIEVEMENT_THRESHOLDS.movies,
               progress: stats.movies.watched,
-              target: 100
+              target: ACHIEVEMENT_THRESHOLDS.movies
             },
             {
-              type: '1000 Episodes Watched',
-              achieved: stats.episodes.watched >= 1000,
+              type: `${ACHIEVEMENT_THRESHOLDS.episodes} Episodes Watched`,
+              achieved: stats.episodes.watched >= ACHIEVEMENT_THRESHOLDS.episodes,
               progress: stats.episodes.watched,
-              target: 1000
+              target: ACHIEVEMENT_THRESHOLDS.episodes
             },
             {
-              type: '100 Hours Watched',
-              achieved: totalHours >= 100,
+              type: `${ACHIEVEMENT_THRESHOLDS.hours} Hours Watched`,
+              achieved: totalHours >= ACHIEVEMENT_THRESHOLDS.hours,
               progress: totalHours,
-              target: 100
+              target: ACHIEVEMENT_THRESHOLDS.hours
             }
           ]
         },
@@ -333,7 +333,7 @@ export class TraktMCPFunctions {
     type: 'movie' | 'episode';
     progress: number;
     duration?: number;
-  }): Promise<any> {
+  }): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
@@ -365,7 +365,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_get_sync_status
    * Check current sync status
    */
-  async traktGetSyncStatus(): Promise<any> {
+  async traktGetSyncStatus(): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       return {
         syncInProgress: false,
@@ -386,7 +386,7 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_search
    * Search for content on Trakt
    */
-  async traktSearch(query: string, type?: 'movie' | 'show', year?: number): Promise<any> {
+  async traktSearch(query: string, type?: 'movie' | 'show', year?: number): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
@@ -399,18 +399,21 @@ export class TraktMCPFunctions {
         query,
         type: type || 'all',
         year,
-        results: results.slice(0, 10).map(result => ({
-          type: result.type,
-          score: result.score,
-          [result.type]: {
-            title: result[result.type].title,
-            year: result[result.type].year,
-            ids: result[result.type].ids,
-            overview: result[result.type].overview?.substring(0, 200)
-          }
-        })),
+        results: results.slice(0, TRAKT_PREVIEW_LIMIT).map(result => {
+          const media = result.type === 'movie' ? result.movie : result.show;
+          return {
+            type: result.type,
+            score: result.score,
+            [result.type]: {
+              title: media?.title,
+              year: media?.year,
+              ids: media?.ids,
+              overview: media?.overview ? truncate(media.overview, SUMMARY_PREVIEW_LENGTH) : undefined
+            }
+          };
+        }),
         totalResults: results.length,
-        showing: Math.min(10, results.length)
+        showing: Math.min(TRAKT_PREVIEW_LIMIT, results.length)
       };
     } catch (error) {
       return {

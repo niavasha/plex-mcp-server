@@ -94,10 +94,7 @@ jobs:
     - name: Run TruffleHog
       uses: trufflesecurity/trufflehog@main
       with:
-        path: ./
-        base: main
-        head: HEAD
-        extra_args: --debug --only-verified
+        extra_args: --only-verified
 
   license-check:
     name: License Compliance

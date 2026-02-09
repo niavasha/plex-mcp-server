@@ -13,6 +13,7 @@ import {
   PlexTools,
   createPlexToolRegistry,
   PLEX_TOOL_SCHEMAS,
+  DEFAULT_PLEX_URL,
 } from "./plex/index.js";
 
 class PlexMCPServer {
@@ -24,9 +25,14 @@ class PlexMCPServer {
       { capabilities: { tools: {} } }
     );
 
+    const plexToken = process.env.PLEX_TOKEN;
+    if (!plexToken) {
+      throw new Error("PLEX_TOKEN environment variable is required");
+    }
+
     const client = new PlexClient({
-      baseUrl: process.env.PLEX_URL || "http://localhost:32400",
-      token: process.env.PLEX_TOKEN || "",
+      baseUrl: process.env.PLEX_URL || DEFAULT_PLEX_URL,
+      token: plexToken,
     });
 
     const tools = new PlexTools(client);

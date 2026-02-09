@@ -19,5 +19,9 @@ export const DEFAULT_LIMITS = {
   popularContent: 10,
 } as const;
 
+export const DEFAULT_PLEX_URL = "http://localhost:32400";
+export const PLEX_CONTAINER_SIZE = 1000;
+export const SUMMARY_PREVIEW_LENGTH = 200;
+
 /** Standardized completion threshold (90%) — was inconsistent 85%/90% across codebase */
 export const COMPLETION_THRESHOLD = 0.90;
