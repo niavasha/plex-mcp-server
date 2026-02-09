@@ -160,3 +160,4 @@ config.local.json
 # MCP specific
 *.mcp.json
 CLAUDE.md
+.claude/
