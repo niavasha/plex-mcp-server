@@ -12,7 +12,9 @@
     "start": "node build/index.js",
     "start:trakt": "node build/plex-trakt-server.js",
     "dev": "tsx src/index.ts",
-    "dev:trakt": "tsx src/plex-trakt-server.ts"
+    "dev:trakt": "tsx src/plex-trakt-server.ts",
+    "start:arr": "node build/plex-arr-server.js",
+    "dev:arr": "tsx src/plex-arr-server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
