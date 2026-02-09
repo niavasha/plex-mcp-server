@@ -1,7 +1,5 @@
 name: Security Scans
-  permissions:
-    contents: read
-    pull-requests: write
+
 on:
   push:
     branches: [ main, develop ]
@@ -10,6 +8,9 @@ on:
   schedule:
     # Run security scans daily at 2 AM UTC
     - cron: '0 2 * * *'
+
+permissions:
+  contents: read
 
 jobs:
   dependency-check:
