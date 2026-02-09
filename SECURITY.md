@@ -1,5 +1,9 @@
 # Security Policy
 
+## Supported Versions
+
+Only the latest version on `main` is supported with security updates.
+
 ## Reporting Security Vulnerabilities
 
 Please do **not** report security vulnerabilities through public GitHub issues.
