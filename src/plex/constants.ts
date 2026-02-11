@@ -17,6 +17,9 @@ export const DEFAULT_LIMITS = {
   watchHistory: 50,
   fullyWatched: 100,
   popularContent: 10,
+  libraryItems: 200,
+  searchMedia: 50,
+  exportPageSize: 500,
 } as const;
 
 export const DEFAULT_PLEX_URL = "http://localhost:32400";

@@ -25,8 +25,16 @@ This MCP server transforms your Plex Media Server into an AI-queryable database.
 
 ### 📚 **Library Management** (Plex)
 - Browse all Plex libraries
+- List library items with pagination and sorting controls
+- Export full libraries to JSON without truncation
 - Search across movies, TV shows, music, and more
+- Restrict search to a specific library section
 - Get detailed metadata for any media item
+
+### 📄 **Read-Only Metadata & Lists** (Plex)
+- Inspect editable fields and current tags for any media item
+- List all playlists and items in a playlist
+- Get Plex watchlist with fallback endpoint support
 
 ### 📊 **Tautulli-Style Analytics** (Plex)
 - Comprehensive viewing statistics
@@ -96,7 +104,7 @@ PLEX_TOKEN=your_plex_token_here
 
 Add to your MCP client configuration (e.g., Claude Desktop).
 
-**Plex only** (12 tools):
+**Plex only** (18 tools):
 ```json
 {
   "mcpServers": {
@@ -112,7 +120,7 @@ Add to your MCP client configuration (e.g., Claude Desktop).
 }
 ```
 
-**Plex + Sonarr/Radarr** (24 tools):
+**Plex + Sonarr/Radarr** (30 tools):
 ```json
 {
   "mcpServers": {
@@ -132,7 +140,7 @@ Add to your MCP client configuration (e.g., Claude Desktop).
 }
 ```
 
-**Plex + Trakt.tv** (16 tools):
+**Plex + Trakt.tv** (22 tools):
 ```json
 {
   "mcpServers": {
@@ -172,10 +180,16 @@ Once configured, you can ask your AI assistant:
 | Function | Description |
 |----------|-------------|
 | `get_libraries` | List all Plex libraries |
-| `search_media` | Search across all media |
+| `get_library_items` | List items in a library with pagination |
+| `export_library` | Export a full library to JSON (under `./exports`) |
+| `search_media` | Search media globally or within one library |
 | `get_recently_added` | Recently added content |
 | `get_on_deck` | Continue watching list |
 | `get_media_details` | Detailed media info |
+| `get_editable_fields` | Show editable fields and available tags for an item |
+| `get_playlists` | List all Plex playlists |
+| `get_playlist_items` | List items in a playlist |
+| `get_watchlist` | Get current Plex watchlist |
 | `get_recently_watched` | Recently watched content |
 | `get_watch_history` | Detailed watch sessions |
 
@@ -243,9 +257,9 @@ Alternative method:
 ```
 plex-mcp-server/
 ├── src/
-│   ├── index.ts               # Standalone Plex server (12 tools)
-│   ├── plex-arr-server.ts     # Plex + Sonarr/Radarr server (24 tools)
-│   ├── plex-trakt-server.ts   # Plex + Trakt server (16 tools)
+│   ├── index.ts               # Standalone Plex server (18 tools)
+│   ├── plex-arr-server.ts     # Plex + Sonarr/Radarr server (30 tools)
+│   ├── plex-trakt-server.ts   # Plex + Trakt server (22 tools)
 │   ├── plex/                  # Shared Plex module
 │   │   ├── client.ts          #   Plex API client
 │   │   ├── tools.ts           #   Plex tool implementations

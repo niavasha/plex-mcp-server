@@ -1,9 +1,12 @@
 /**
  * Plex tool implementations.
- * All 12 Plex MCP tools with typed args and no `as any` casts.
+ * All Plex MCP tools with typed args and no `as any` casts.
  */
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { createWriteStream } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
 import { PlexClient } from "./client.js";
 import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS, COMPLETION_THRESHOLD, PLEX_CONTAINER_SIZE, SUMMARY_PREVIEW_LENGTH } from "./constants.js";
@@ -35,17 +38,199 @@ export class PlexTools {
     });
   }
 
-  async searchMedia(query: string, type?: string): Promise<MCPResponse> {
-    const params: Record<string, string | number> = { query };
+  async getLibraryItems(
+    libraryKey: string,
+    type?: string,
+    limit: number = DEFAULT_LIMITS.libraryItems,
+    offset: number = 0,
+    sort?: string
+  ): Promise<MCPResponse> {
+    if (!libraryKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "libraryKey is required");
+    }
+
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.libraryItems;
+    const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
+    const params: Record<string, string | number> = {
+      "X-Plex-Container-Start": safeOffset,
+      "X-Plex-Container-Size": safeLimit,
+    };
+
+    if (type) {
+      params.type = this.client.getPlexTypeId(type);
+    }
+    if (sort) {
+      params.sort = sort;
+    }
+
+    const data = await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params);
+    const container = data as {
+      MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
+    };
+    const items = container.MediaContainer?.Metadata || [];
+
+    return jsonResponse({
+      libraryKey,
+      offset: safeOffset,
+      limit: safeLimit,
+      totalSize: container.MediaContainer?.totalSize,
+      items: items.map((item) => ({
+        ratingKey: item.ratingKey,
+        title: item.title,
+        originalTitle: item.originalTitle,
+        year: item.year,
+        type: item.type,
+        guid: item.guid,
+        editionTitle: item.editionTitle,
+      })),
+    });
+  }
+
+  async exportLibrary(
+    libraryKey: string,
+    type?: string,
+    outputPath?: string,
+    pageSize: number = DEFAULT_LIMITS.exportPageSize
+  ): Promise<MCPResponse> {
+    if (!libraryKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "libraryKey is required");
+    }
+
+    const baseExportDir = path.resolve(process.cwd(), "exports");
+    let exportPath: string;
+    if (outputPath) {
+      if (path.isAbsolute(outputPath)) {
+        throw new McpError(ErrorCode.InvalidRequest, "Absolute paths are not allowed for outputPath");
+      }
+
+      const resolvedPath = path.resolve(baseExportDir, outputPath);
+      const basePrefix = `${baseExportDir}${path.sep}`;
+      if (resolvedPath !== baseExportDir && !resolvedPath.startsWith(basePrefix)) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "outputPath must be within the exports directory and must not contain path traversal"
+        );
+      }
+      exportPath = resolvedPath;
+    } else {
+      exportPath = path.join(baseExportDir, `library_${libraryKey}_${Date.now()}.json`);
+    }
+
+    await mkdir(path.dirname(exportPath), { recursive: true });
+
+    const safePageSize =
+      Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : DEFAULT_LIMITS.exportPageSize;
+    const stream = createWriteStream(exportPath, { encoding: "utf8" });
+    let streamError: Error | null = null;
+    stream.once("error", (error) => {
+      streamError = error as Error;
+    });
+
+    let offset = 0;
+    let totalSize = 0;
+    let totalExported = 0;
+    let isFirst = true;
+
+    try {
+      await this.writeToStream(stream, "[\n");
+
+      while (true) {
+        const params: Record<string, string | number> = {
+          "X-Plex-Container-Start": offset,
+          "X-Plex-Container-Size": safePageSize,
+        };
+        if (type) {
+          params.type = this.client.getPlexTypeId(type);
+        }
+
+        const data = await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params);
+        const container = data as {
+          MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
+        };
+        const items = container.MediaContainer?.Metadata || [];
+        totalSize = typeof container.MediaContainer?.totalSize === "number" ? container.MediaContainer.totalSize : totalSize;
+
+        for (const item of items) {
+          if (!isFirst) {
+            await this.writeToStream(stream, ",\n");
+          }
+
+          await this.writeToStream(
+            stream,
+            JSON.stringify({
+              ratingKey: item.ratingKey,
+              title: item.title,
+              year: item.year,
+              type: item.type,
+              guid: item.guid,
+              originalTitle: item.originalTitle,
+              editionTitle: item.editionTitle,
+            })
+          );
+          isFirst = false;
+          totalExported += 1;
+        }
+
+        offset += items.length;
+        if (items.length === 0 || (totalSize > 0 && offset >= totalSize)) {
+          break;
+        }
+      }
+
+      await this.writeToStream(stream, "\n]\n");
+      await this.finishStream(stream);
+    } catch (error) {
+      stream.destroy();
+      await rm(exportPath, { force: true }).catch(() => undefined);
+      if (error instanceof McpError) {
+        throw error;
+      }
+      const message = this.getErrorMessage(streamError || error);
+      throw new McpError(ErrorCode.InternalError, `Failed to export library: ${message}`);
+    }
+
+    return jsonResponse({
+      exported: true,
+      libraryKey,
+      type: type || "all",
+      outputPath: exportPath,
+      totalExported,
+      totalSize: totalSize || totalExported,
+    });
+  }
+
+  async searchMedia(
+    query: string,
+    type?: string,
+    libraryKey?: string,
+    limit: number = DEFAULT_LIMITS.searchMedia,
+    offset: number = 0
+  ): Promise<MCPResponse> {
+    if (!query) {
+      throw new McpError(ErrorCode.InvalidRequest, "query is required");
+    }
+
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.searchMedia;
+    const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
+    const params: Record<string, string | number> = {
+      query,
+      "X-Plex-Container-Start": safeOffset,
+      "X-Plex-Container-Size": safeLimit,
+    };
     if (type) {
       params.type = this.client.getPlexTypeId(type);
     }
 
-    const data = await this.client.makeRequest("/search", params);
+    const endpoint = libraryKey ? `/library/sections/${libraryKey}/search` : "/search";
+    const data = await this.client.makeRequest(endpoint, params);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
     const results = container.MediaContainer?.Metadata || [];
 
     return jsonResponse({
+      query,
+      libraryKey: libraryKey || "all",
+      offset: safeOffset,
+      limit: safeLimit,
       results: results.map((item) => ({
         ratingKey: item.ratingKey,
         title: item.title,
@@ -55,6 +240,136 @@ export class PlexTools {
         rating: item.rating,
         thumb: item.thumb,
       })),
+    });
+  }
+
+  async getPlaylists(): Promise<MCPResponse> {
+    const data = await this.client.makeRequest("/playlists");
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const playlists = container.MediaContainer?.Metadata || [];
+
+    return jsonResponse({
+      playlists: playlists.map((playlist) => ({
+        ratingKey: playlist.ratingKey,
+        key: playlist.key,
+        title: playlist.title,
+        type: playlist.type,
+        playlistType: playlist.playlistType,
+        smart: playlist.smart,
+        leafCount: playlist.leafCount,
+        duration: playlist.duration,
+        summary: playlist.summary,
+        updatedAt: playlist.updatedAt,
+        addedAt: playlist.addedAt,
+      })),
+    });
+  }
+
+  async getPlaylistItems(playlistId: string): Promise<MCPResponse> {
+    if (!playlistId) {
+      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
+    }
+
+    const data = await this.client.makeRequest(`/playlists/${playlistId}/items`);
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const items = container.MediaContainer?.Metadata || [];
+
+    return jsonResponse({
+      playlistId,
+      items: items.map((item) => ({
+        playlistItemID: item.playlistItemID,
+        ratingKey: item.ratingKey,
+        title: item.title,
+        type: item.type,
+        year: item.year,
+        duration: item.duration,
+        summary: item.summary,
+      })),
+    });
+  }
+
+  async getWatchlist(): Promise<MCPResponse> {
+    const endpoints = ["/library/sections/watchlist/all", "/library/metadata/watchlist"];
+    const errors: string[] = [];
+
+    for (const endpoint of endpoints) {
+      try {
+        const data = await this.client.makeRequest(endpoint);
+        const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+        const watchlist = container.MediaContainer?.Metadata || [];
+
+        return jsonResponse({
+          watchlist: watchlist.map((item) => ({
+            ratingKey: item.ratingKey,
+            title: item.title,
+            type: item.type,
+            year: item.year,
+            summary: item.summary,
+            addedAt: item.addedAt,
+          })),
+          ...(endpoint !== endpoints[0] ? { note: "Retrieved using fallback watchlist endpoint" } : {}),
+        });
+      } catch (error) {
+        errors.push(`${endpoint}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    return jsonResponse({
+      watchlist: [],
+      error: "Watchlist not available",
+      message: "Your Plex server may not have the watchlist feature enabled or accessible through the API",
+      errors,
+    });
+  }
+
+  async getEditableFields(ratingKey: string): Promise<MCPResponse> {
+    if (!ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+
+    const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const item = container.MediaContainer?.Metadata?.[0];
+
+    if (!item) {
+      throw new McpError(ErrorCode.InvalidRequest, `Media item not found: ${ratingKey}`);
+    }
+
+    const availableTags = {
+      genres: (item.Genre as Array<{ tag: string }> | undefined)?.map((g) => g.tag) || [],
+      collections: (item.Collection as Array<{ tag: string }> | undefined)?.map((c) => c.tag) || [],
+      roles: (item.Role as Array<{ tag: string }> | undefined)?.map((r) => r.tag) || [],
+      directors: (item.Director as Array<{ tag: string }> | undefined)?.map((d) => d.tag) || [],
+    };
+
+    const editableFields = [
+      "title",
+      "sortTitle",
+      "originalTitle",
+      "summary",
+      "year",
+      "contentRating",
+      "rating",
+      "tagline",
+      "studio",
+    ];
+
+    const editableTags = Object.keys(availableTags).filter(
+      (key) => availableTags[key as keyof typeof availableTags].length > 0
+    );
+
+    return jsonResponse({
+      ratingKey,
+      type: item.type,
+      title: item.title,
+      librarySectionID: item.librarySectionID,
+      editableFields,
+      editableTags,
+      availableTags,
+      notes: [
+        "Roles/directors availability depends on agent/library type.",
+        "If a tag array is empty, Plex likely won't accept edits for that tag type.",
+      ],
     });
   }
 
@@ -458,6 +773,40 @@ export class PlexTools {
   }
 
   // ── Private helpers ─────────────────────────────────────────
+
+  private async writeToStream(stream: ReturnType<typeof createWriteStream>, chunk: string): Promise<void> {
+    if (stream.write(chunk)) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onDrain = () => {
+        stream.off("error", onError);
+        resolve();
+      };
+      const onError = (error: unknown) => {
+        stream.off("drain", onDrain);
+        reject(error);
+      };
+
+      stream.once("drain", onDrain);
+      stream.once("error", onError);
+    });
+  }
+
+  private async finishStream(stream: ReturnType<typeof createWriteStream>): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      stream.once("finish", () => resolve());
+      stream.once("error", (error) => reject(error));
+      stream.end();
+    });
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
 
   private async getRecentlyWatchedFromLibraries(limit: number, mediaType: string): Promise<MCPResponse> {
     const librariesData = await this.client.makeRequest("/library/sections");
