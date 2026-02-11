@@ -9,7 +9,14 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient } from "./client.js";
 import { MCPResponse } from "./types.js";
-import { DEFAULT_LIMITS, COMPLETION_THRESHOLD, PLEX_CONTAINER_SIZE, SUMMARY_PREVIEW_LENGTH } from "./constants.js";
+import {
+  DEFAULT_LIMITS,
+  COMPLETION_THRESHOLD,
+  PLEX_CONTAINER_SIZE,
+  SUMMARY_PREVIEW_LENGTH,
+  PLEX_MUTATIVE_OPS_ENV_VAR,
+  isMutativeOpsEnabled,
+} from "./constants.js";
 import { truncate, validatePlexId } from "../shared/utils.js";
 
 /** Helper: wrap a JSON value as an MCP text response */
@@ -17,7 +24,28 @@ function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 }
 
+type MetadataUpdateInput = {
+  ratingKey: string;
+  title?: string;
+  sortTitle?: string;
+  originalTitle?: string;
+  summary?: string;
+  year?: number;
+  contentRating?: string;
+  rating?: number;
+  tagline?: string;
+  studio?: string;
+  genres?: unknown[];
+  collections?: unknown[];
+  roles?: unknown[];
+  directors?: unknown[];
+};
+
+type EditableTagType = "genre" | "collection" | "role" | "director";
+
 export class PlexTools {
+  private machineIdentifier?: string;
+
   constructor(private client: PlexClient) {}
 
   // ── Core tools ──────────────────────────────────────────────
@@ -437,6 +465,386 @@ export class PlexTools {
     });
   }
 
+  // ── Mutative tools (opt-in) ─────────────────────────────────
+
+  async updateMetadata(input: MetadataUpdateInput): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("update_metadata");
+    if (!input.ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+
+    const params: Record<string, string | number> = {};
+    if (input.title !== undefined) params.title = input.title;
+    if (input.sortTitle !== undefined) params.titleSort = input.sortTitle;
+    if (input.originalTitle !== undefined) params.originalTitle = input.originalTitle;
+    if (input.summary !== undefined) params.summary = input.summary;
+    if (input.year !== undefined) params.year = input.year;
+    if (input.contentRating !== undefined) params.contentRating = input.contentRating;
+    if (input.rating !== undefined) params.rating = input.rating;
+    if (input.tagline !== undefined) params.tagline = input.tagline;
+    if (input.studio !== undefined) params.studio = input.studio;
+
+    const tagInputs = {
+      genres: this.normalizeTagList(input.genres),
+      collections: this.normalizeTagList(input.collections),
+      roles: this.normalizeTagList(input.roles),
+      directors: this.normalizeTagList(input.directors),
+    };
+
+    const hasTagUpdates =
+      input.genres !== undefined ||
+      input.collections !== undefined ||
+      input.roles !== undefined ||
+      input.directors !== undefined;
+
+    if (Object.keys(params).length === 0 && !hasTagUpdates) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "At least one metadata field must be provided"
+      );
+    }
+
+    const warnings: string[] = [];
+    let anySuccess = false;
+
+    if (Object.keys(params).length > 0) {
+      try {
+        await this.client.makeRequest(`/library/metadata/${input.ratingKey}`, params, "PUT");
+        anySuccess = true;
+      } catch (error) {
+        warnings.push(`Basic metadata update failed: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    const tagResults: Array<Record<string, unknown>> = [];
+    if (hasTagUpdates) {
+      if (input.genres !== undefined) {
+        const result = await this.replaceTagsSafely(input.ratingKey, "genre", tagInputs.genres);
+        if (result.success) anySuccess = true;
+        tagResults.push(result);
+      }
+      if (input.collections !== undefined) {
+        const result = await this.replaceTagsSafely(input.ratingKey, "collection", tagInputs.collections);
+        if (result.success) anySuccess = true;
+        tagResults.push(result);
+      }
+      if (input.roles !== undefined) {
+        const result = await this.replaceTagsSafely(input.ratingKey, "role", tagInputs.roles);
+        if (result.success) anySuccess = true;
+        tagResults.push(result);
+      }
+      if (input.directors !== undefined) {
+        const result = await this.replaceTagsSafely(input.ratingKey, "director", tagInputs.directors);
+        if (result.success) anySuccess = true;
+        tagResults.push(result);
+      }
+    }
+
+    return jsonResponse({
+      updated: anySuccess,
+      ratingKey: input.ratingKey,
+      fields: params,
+      tagResults: tagResults.length > 0 ? tagResults : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    });
+  }
+
+  async updateMetadataFromJson(
+    ratingKey: string,
+    metadata: Record<string, unknown>,
+    setPosterFromUrl: boolean = false
+  ): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("update_metadata_from_json");
+    if (!ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+    if (!metadata || typeof metadata !== "object") {
+      throw new McpError(ErrorCode.InvalidRequest, "metadata object is required");
+    }
+
+    const mapped: MetadataUpdateInput = { ratingKey };
+    const normalizeNullable = (value: unknown) => (value === null ? undefined : value);
+
+    if ("title" in metadata) mapped.title = normalizeNullable(metadata.title) as string | undefined;
+    if ("sortTitle" in metadata) mapped.sortTitle = normalizeNullable(metadata.sortTitle) as string | undefined;
+    if ("originalTitle" in metadata) {
+      mapped.originalTitle = normalizeNullable(metadata.originalTitle) as string | undefined;
+    }
+    if ("summary" in metadata) mapped.summary = normalizeNullable(metadata.summary) as string | undefined;
+    if ("year" in metadata && metadata.year !== null && metadata.year !== undefined) mapped.year = metadata.year as number;
+    if ("contentRating" in metadata) {
+      mapped.contentRating = normalizeNullable(metadata.contentRating) as string | undefined;
+    }
+    if ("rating" in metadata && metadata.rating !== null && metadata.rating !== undefined) mapped.rating = metadata.rating as number;
+    if ("tagline" in metadata) mapped.tagline = normalizeNullable(metadata.tagline) as string | undefined;
+    if ("studio" in metadata) mapped.studio = normalizeNullable(metadata.studio) as string | undefined;
+    if ("genres" in metadata) mapped.genres = metadata.genres as unknown[];
+    if ("collections" in metadata) mapped.collections = metadata.collections as unknown[];
+    if ("roles" in metadata) mapped.roles = metadata.roles as unknown[];
+    if ("directors" in metadata) mapped.directors = metadata.directors as unknown[];
+
+    const warnings: string[] = [];
+    let metadataUpdated = false;
+    let posterUpdated = false;
+
+    try {
+      const response = await this.updateMetadata(mapped);
+      const parsed = this.parseResponseText(response);
+      metadataUpdated = Boolean(parsed && (parsed.updated as boolean));
+    } catch (error) {
+      warnings.push(`Update failed: ${this.getErrorMessage(error)}`);
+    }
+
+    if (setPosterFromUrl) {
+      const posterUrl =
+        ((metadata.images as { posters?: Array<{ url?: string }> } | undefined)?.posters?.[0]?.url as string | undefined);
+      if (!posterUrl) {
+        warnings.push("Poster update skipped: metadata.images.posters[0].url not found");
+      } else {
+        const posterResult = await this.setPosterFromUrl(ratingKey, posterUrl);
+        posterUpdated = posterResult.success;
+        if (posterResult.error) {
+          warnings.push(posterResult.error);
+        }
+      }
+    }
+
+    const supportedKeys = new Set([
+      "title",
+      "sortTitle",
+      "originalTitle",
+      "summary",
+      "year",
+      "contentRating",
+      "rating",
+      "tagline",
+      "studio",
+      "genres",
+      "collections",
+      "roles",
+      "directors",
+      "images",
+    ]);
+    const ignoredFields = Object.keys(metadata).filter((key) => !supportedKeys.has(key));
+
+    return jsonResponse({
+      updated: metadataUpdated || posterUpdated,
+      ratingKey,
+      appliedFields: Object.fromEntries(
+        Object.entries(mapped).filter(([key]) => key !== "ratingKey")
+      ),
+      ignoredFields,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    });
+  }
+
+  async createPlaylist(
+    title: string,
+    type: string,
+    ratingKeys?: string[],
+    smart?: boolean
+  ): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("create_playlist");
+    if (!title) {
+      throw new McpError(ErrorCode.InvalidRequest, "title is required");
+    }
+    if (!type) {
+      throw new McpError(ErrorCode.InvalidRequest, "type is required");
+    }
+
+    const playlistType = this.getPlaylistType(type);
+    const createSmart = smart === true || !ratingKeys || ratingKeys.length === 0;
+    const params: Record<string, string | number> = {
+      title,
+      type: playlistType,
+      smart: createSmart ? 1 : 0,
+    };
+
+    if (!createSmart && ratingKeys && ratingKeys.length > 0) {
+      const machineIdentifier = await this.getMachineIdentifier();
+      params.uri = `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys[0]}`;
+    }
+
+    const data = await this.client.makeRequest("/playlists", params, "POST");
+    const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
+    const playlist = container.MediaContainer?.Metadata?.[0];
+    const playlistId = playlist?.ratingKey as string | undefined;
+
+    const addResults: Array<{ ratingKey: string; added: boolean; error?: string }> = [];
+    if (!createSmart && ratingKeys && ratingKeys.length > 1 && playlistId) {
+      for (const ratingKey of ratingKeys.slice(1)) {
+        try {
+          await this.addToPlaylist(playlistId, ratingKey);
+          addResults.push({ ratingKey, added: true });
+        } catch (error) {
+          addResults.push({ ratingKey, added: false, error: this.getErrorMessage(error) });
+        }
+      }
+    }
+
+    return jsonResponse({
+      created: true,
+      smart: createSmart,
+      playlist: playlist
+        ? {
+            ratingKey: playlist.ratingKey,
+            title: playlist.title,
+            type: playlist.type,
+            playlistType: playlist.playlistType,
+            smart: playlist.smart,
+            leafCount: playlist.leafCount,
+          }
+        : {
+            title,
+            type: playlistType,
+            leafCount: ratingKeys?.length || 0,
+          },
+      addResults: addResults.length > 0 ? addResults : undefined,
+    });
+  }
+
+  async addToPlaylist(playlistId: string, ratingKey: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("add_to_playlist");
+    if (!playlistId) {
+      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
+    }
+    if (!ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+
+    const machineIdentifier = await this.getMachineIdentifier();
+    const uri = `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKey}`;
+    const attempts = [
+      { method: "POST", endpoint: `/playlists/${playlistId}/items`, label: "POST /playlists/{id}/items" },
+      { method: "PUT", endpoint: `/playlists/${playlistId}/items`, label: "PUT /playlists/{id}/items" },
+    ];
+
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        await this.client.makeRequest(attempt.endpoint, { uri }, attempt.method);
+        const verification = await this.isItemInPlaylist(playlistId, ratingKey);
+        if (verification.found) {
+          return jsonResponse({
+            added: true,
+            playlistId,
+            ratingKey,
+            method: attempt.method,
+            endpoint: attempt.endpoint,
+          });
+        }
+        errors.push(`${attempt.label}: request succeeded but item was not found in playlist`);
+      } catch (error) {
+        errors.push(`${attempt.label}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Unable to add item ${ratingKey} to playlist ${playlistId}. Attempts: ${errors.join(" | ")}`
+    );
+  }
+
+  async removeFromPlaylist(playlistId: string, playlistItemId: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("remove_from_playlist");
+    if (!playlistId) {
+      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
+    }
+    if (!playlistItemId) {
+      throw new McpError(ErrorCode.InvalidRequest, "playlistItemId is required");
+    }
+
+    await this.client.makeRequest(`/playlists/${playlistId}/items/${playlistItemId}`, {}, "DELETE");
+    return jsonResponse({
+      removed: true,
+      playlistId,
+      playlistItemId,
+    });
+  }
+
+  async clearPlaylist(playlistId: string, confirm: boolean = false): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("clear_playlist");
+    if (!playlistId) {
+      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
+    }
+
+    const data = await this.client.makeRequest(`/playlists/${playlistId}/items`);
+    const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
+    const items = container.MediaContainer?.Metadata || [];
+    const itemCount = items.length;
+
+    if (!confirm) {
+      return jsonResponse({
+        preview: true,
+        playlistId,
+        itemCount,
+        confirmationRequired: true,
+        message: "Set confirm=true to clear this playlist",
+      });
+    }
+
+    await this.client.makeRequest(`/playlists/${playlistId}/items`, {}, "DELETE");
+    return jsonResponse({
+      cleared: true,
+      playlistId,
+      removedCount: itemCount,
+    });
+  }
+
+  async addToWatchlist(ratingKey: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("add_to_watchlist");
+    if (!ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+
+    const attempts = [
+      { endpoint: "/actions/addToWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
+      { endpoint: `/library/metadata/${ratingKey}/watchlist`, method: "PUT", params: {} as Record<string, string | number> },
+    ];
+    const errors: string[] = [];
+
+    for (const attempt of attempts) {
+      try {
+        await this.client.makeRequest(attempt.endpoint, attempt.params, attempt.method);
+        return jsonResponse({ updated: true, action: "add_to_watchlist", ratingKey, endpoint: attempt.endpoint });
+      } catch (error) {
+        errors.push(`${attempt.method} ${attempt.endpoint}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Unable to add ${ratingKey} to watchlist. Attempts: ${errors.join(" | ")}`
+    );
+  }
+
+  async removeFromWatchlist(ratingKey: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("remove_from_watchlist");
+    if (!ratingKey) {
+      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
+    }
+
+    const attempts = [
+      { endpoint: "/actions/removeFromWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
+      { endpoint: `/library/metadata/${ratingKey}/watchlist`, method: "DELETE", params: {} as Record<string, string | number> },
+    ];
+    const errors: string[] = [];
+
+    for (const attempt of attempts) {
+      try {
+        await this.client.makeRequest(attempt.endpoint, attempt.params, attempt.method);
+        return jsonResponse({ updated: true, action: "remove_from_watchlist", ratingKey, endpoint: attempt.endpoint });
+      } catch (error) {
+        errors.push(`${attempt.method} ${attempt.endpoint}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Unable to remove ${ratingKey} from watchlist. Attempts: ${errors.join(" | ")}`
+    );
+  }
+
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
     // Primary: use watch history endpoint
     try {
@@ -800,10 +1208,234 @@ export class PlexTools {
   }
 
   private getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private requireMutativeOpsEnabled(toolName: string): void {
+    if (isMutativeOpsEnabled()) {
+      return;
     }
-    return String(error);
+    throw new McpError(
+      ErrorCode.InvalidRequest,
+      `${toolName} is disabled. Set ${PLEX_MUTATIVE_OPS_ENV_VAR}=true to enable mutative Plex tools.`
+    );
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private parseResponseText(response: MCPResponse): Record<string, unknown> | undefined {
+    const text = response.content?.[0]?.text;
+    if (!text) return undefined;
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private normalizeTagList(input: unknown[] | undefined): string[] {
+    if (!input || !Array.isArray(input)) return [];
+    return input
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && typeof (item as { tag?: unknown }).tag === "string") {
+          return (item as { tag: string }).tag;
+        }
+        return "";
+      })
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+  }
+
+  private async replaceTagsSafely(
+    ratingKey: string,
+    tag: EditableTagType,
+    desiredTags: string[]
+  ): Promise<Record<string, unknown>> {
+    const { item, libraryKey } = await this.getMediaContext(ratingKey);
+    const currentTags = this.getCurrentTags(item, tag);
+
+    const desiredSet = new Set(desiredTags);
+    const currentSet = new Set(currentTags);
+    const toAdd = desiredTags.filter((value) => !currentSet.has(value));
+    const toRemove = currentTags.filter((value) => !desiredSet.has(value));
+    const warnings: string[] = [];
+    let success = false;
+
+    // Add first, remove second to avoid data loss on partial failures.
+    if (toAdd.length > 0) {
+      try {
+        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toAdd, false);
+        success = true;
+      } catch (error) {
+        warnings.push(`Failed adding ${tag} tags: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    if (toRemove.length > 0) {
+      try {
+        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toRemove, true);
+        success = true;
+      } catch (error) {
+        warnings.push(`Failed removing ${tag} tags: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    return {
+      tag,
+      success,
+      added: toAdd,
+      removed: toRemove,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
+  }
+
+  private getCurrentTags(item: Record<string, unknown>, tag: EditableTagType): string[] {
+    const list = (() => {
+      switch (tag) {
+        case "genre":
+          return item.Genre as Array<{ tag: string }> | undefined;
+        case "collection":
+          return item.Collection as Array<{ tag: string }> | undefined;
+        case "director":
+          return item.Director as Array<{ tag: string }> | undefined;
+        case "role":
+          return item.Role as Array<{ tag: string }> | undefined;
+      }
+    })();
+    return (Array.isArray(list) ? list : []).map((entry) => entry.tag).filter(Boolean);
+  }
+
+  private async editTagsForItem(
+    ratingKey: string,
+    libraryKey: string,
+    itemType: string,
+    tag: EditableTagType,
+    items: string[],
+    remove: boolean
+  ): Promise<void> {
+    const params: Record<string, string | number> = {
+      id: ratingKey,
+      type: this.client.getPlexTypeId(itemType),
+      ...this.buildTagParams(tag, items, true, remove),
+    };
+
+    await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params, "PUT");
+  }
+
+  private buildTagParams(tag: string, items: string[], locked: boolean, remove: boolean): Record<string, string | number> {
+    const data: Record<string, string | number> = {
+      [`${tag}.locked`]: locked ? 1 : 0,
+    };
+
+    if (remove) {
+      data[`${tag}[].tag.tag-`] = items.join(",");
+      return data;
+    }
+
+    items.forEach((item, index) => {
+      data[`${tag}[${index}].tag.tag`] = item;
+    });
+    return data;
+  }
+
+  private async getMediaContext(ratingKey: string): Promise<{ item: Record<string, unknown>; libraryKey: string }> {
+    const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
+    const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
+    const item = container.MediaContainer?.Metadata?.[0];
+    if (!item) {
+      throw new McpError(ErrorCode.InvalidRequest, `Media item not found: ${ratingKey}`);
+    }
+
+    const libraryKey =
+      (item.librarySectionID as string | number | undefined) ||
+      (item.librarySectionKey as string | number | undefined) ||
+      ((item.librarySection as { key?: string | number } | undefined)?.key as string | number | undefined);
+    if (!libraryKey) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        "Unable to determine library section key for the media item"
+      );
+    }
+
+    return { item, libraryKey: String(libraryKey) };
+  }
+
+  private async setPosterFromUrl(
+    ratingKey: string,
+    url: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!url) {
+      return { success: false, error: "Poster update skipped: poster url is required" };
+    }
+
+    const attempts = [
+      { endpoint: `/library/metadata/${ratingKey}/posters`, method: "POST", label: "POST /posters" },
+      { endpoint: `/library/metadata/${ratingKey}/posters`, method: "PUT", label: "PUT /posters" },
+    ];
+    const errors: string[] = [];
+
+    for (const attempt of attempts) {
+      try {
+        await this.client.makeRequest(attempt.endpoint, { url }, attempt.method);
+        return { success: true };
+      } catch (error) {
+        errors.push(`${attempt.label}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
+    return { success: false, error: `Poster update failed. Attempts: ${errors.join(" | ")}` };
+  }
+
+  private async getMachineIdentifier(): Promise<string> {
+    if (this.machineIdentifier) {
+      return this.machineIdentifier;
+    }
+
+    const data = await this.client.makeRequest("/identity");
+    const machineIdentifier = (data as { MediaContainer?: { machineIdentifier?: string } })
+      .MediaContainer?.machineIdentifier;
+    if (!machineIdentifier) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        "Unable to determine Plex machine identifier. Check server access and token."
+      );
+    }
+    this.machineIdentifier = machineIdentifier;
+    return machineIdentifier;
+  }
+
+  private async isItemInPlaylist(playlistId: string, ratingKey: string): Promise<{ found: boolean }> {
+    try {
+      const data = await this.client.makeRequest(`/playlists/${playlistId}/items`, {
+        "X-Plex-Container-Start": 0,
+        "X-Plex-Container-Size": 2000,
+      });
+      const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
+      const items = container.MediaContainer?.Metadata || [];
+      return {
+        found: items.some((item) => String(item.ratingKey) === String(ratingKey)),
+      };
+    } catch {
+      return { found: false };
+    }
+  }
+
+  private getPlaylistType(type: string): "video" | "audio" | "photo" {
+    if (type === "video" || type === "audio" || type === "photo") {
+      return type;
+    }
+    const map: Record<string, "video" | "audio"> = {
+      movie: "video",
+      show: "video",
+      episode: "video",
+      artist: "audio",
+      album: "audio",
+      track: "audio",
+    };
+    return map[type] || "video";
   }
 
   private async getRecentlyWatchedFromLibraries(limit: number, mediaType: string): Promise<MCPResponse> {

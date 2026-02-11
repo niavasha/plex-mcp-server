@@ -98,6 +98,8 @@ cp .env.example .env
 # Edit with your details
 PLEX_URL=http://localhost:32400
 PLEX_TOKEN=your_plex_token_here
+# Optional: enable mutative Plex tools (disabled by default)
+# PLEX_ENABLE_MUTATIVE_OPS=true
 ```
 
 3. **Configure your MCP client:**
@@ -113,7 +115,8 @@ Add to your MCP client configuration (e.g., Claude Desktop).
       "args": ["/path/to/plex-mcp-server/build/index.js"],
       "env": {
         "PLEX_URL": "http://localhost:32400",
-        "PLEX_TOKEN": "your_plex_token_here"
+        "PLEX_TOKEN": "your_plex_token_here",
+        "PLEX_ENABLE_MUTATIVE_OPS": "true"
       }
     }
   }
@@ -194,6 +197,9 @@ Once configured, you can ask your AI assistant:
 | `get_watch_history` | Detailed watch sessions |
 
 The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`, `get_user_stats`, `get_library_stats`, `get_popular_content`.
+
+When `PLEX_ENABLE_MUTATIVE_OPS=true`, Plex tools also include:
+`update_metadata`, `update_metadata_from_json`, `create_playlist`, `add_to_playlist`, `remove_from_playlist`, `clear_playlist`, `add_to_watchlist`, `remove_from_watchlist`.
 
 ### Sonarr Tools (plex-arr-server)
 

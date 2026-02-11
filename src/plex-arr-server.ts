@@ -16,7 +16,9 @@ import {
   PlexTools,
   createPlexToolRegistry,
   PLEX_CORE_TOOL_SCHEMAS,
+  PLEX_MUTATIVE_TOOL_SCHEMAS,
   DEFAULT_PLEX_URL,
+  isMutativeOpsEnabled,
 } from "./plex/index.js";
 
 // Arr integration
@@ -43,13 +45,18 @@ class PlexArrMCPServer {
       token: plexToken,
     });
 
+    const mutativeEnabled = isMutativeOpsEnabled();
     const plexTools = new PlexTools(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools);
+    const plexRegistry = createPlexToolRegistry(plexTools, { includeMutative: mutativeEnabled });
     const arrFunctions = new ArrMCPFunctions();
     const arrRegistry = createArrToolRegistry(arrFunctions);
 
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [...PLEX_CORE_TOOL_SCHEMAS, ...ARR_TOOL_SCHEMAS],
+      tools: [
+        ...PLEX_CORE_TOOL_SCHEMAS,
+        ...(mutativeEnabled ? PLEX_MUTATIVE_TOOL_SCHEMAS : []),
+        ...ARR_TOOL_SCHEMAS,
+      ],
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {

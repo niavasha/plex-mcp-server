@@ -16,7 +16,9 @@ import {
   PlexTools,
   createPlexToolRegistry,
   PLEX_CORE_TOOL_SCHEMAS,
+  PLEX_MUTATIVE_TOOL_SCHEMAS,
   DEFAULT_PLEX_URL,
+  isMutativeOpsEnabled,
 } from "./plex/index.js";
 
 // Trakt integration
@@ -43,13 +45,18 @@ class PlexTraktMCPServer {
       token: plexToken,
     });
 
+    const mutativeEnabled = isMutativeOpsEnabled();
     const plexTools = new PlexTools(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools);
+    const plexRegistry = createPlexToolRegistry(plexTools, { includeMutative: mutativeEnabled });
     const traktFunctions = new TraktMCPFunctions(plexClient);
     const traktRegistry = createTraktToolRegistry(traktFunctions);
 
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [...PLEX_CORE_TOOL_SCHEMAS, ...TRAKT_TOOL_SCHEMAS],
+      tools: [
+        ...PLEX_CORE_TOOL_SCHEMAS,
+        ...(mutativeEnabled ? PLEX_MUTATIVE_TOOL_SCHEMAS : []),
+        ...TRAKT_TOOL_SCHEMAS,
+      ],
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {

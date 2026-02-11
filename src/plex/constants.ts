@@ -25,6 +25,11 @@ export const DEFAULT_LIMITS = {
 export const DEFAULT_PLEX_URL = "http://localhost:32400";
 export const PLEX_CONTAINER_SIZE = 1000;
 export const SUMMARY_PREVIEW_LENGTH = 200;
+export const PLEX_MUTATIVE_OPS_ENV_VAR = "PLEX_ENABLE_MUTATIVE_OPS";
 
 /** Standardized completion threshold (90%) — was inconsistent 85%/90% across codebase */
 export const COMPLETION_THRESHOLD = 0.90;
+
+export function isMutativeOpsEnabled(): boolean {
+  return process.env[PLEX_MUTATIVE_OPS_ENV_VAR] === "true";
+}
