@@ -12,6 +12,49 @@ const GET_LIBRARIES_SCHEMA = {
   },
 };
 
+const GET_LIBRARY_ITEMS_SCHEMA = {
+  name: "get_library_items",
+  description: "List items in a library with pagination (useful for large libraries)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      libraryKey: { type: "string", description: "Library section key" },
+      type: {
+        type: "string",
+        description: "Media type (movie, show, episode, artist, album, track)",
+        enum: ["movie", "show", "episode", "artist", "album", "track"],
+      },
+      limit: { type: "number", description: "Number of items to return (default: 200)", default: 200 },
+      offset: { type: "number", description: "Zero-based offset for pagination (default: 0)", default: 0 },
+      sort: { type: "string", description: "Sort order (optional, e.g., titleSort:asc)" },
+    },
+    required: ["libraryKey"],
+  },
+};
+
+const EXPORT_LIBRARY_SCHEMA = {
+  name: "export_library",
+  description: "Export a full library to a JSON file (within ./exports)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      libraryKey: { type: "string", description: "Library section key" },
+      type: {
+        type: "string",
+        description: "Media type (movie, show, episode, artist, album, track)",
+        enum: ["movie", "show", "episode", "artist", "album", "track"],
+      },
+      outputPath: {
+        type: "string",
+        description:
+          "Optional relative path under ./exports (default: library_{key}_{timestamp}.json)",
+      },
+      pageSize: { type: "number", description: "Items per page for export (default: 500)", default: 500 },
+    },
+    required: ["libraryKey"],
+  },
+};
+
 const SEARCH_MEDIA_SCHEMA = {
   name: "search_media",
   description: "Search for media in Plex libraries",
@@ -24,6 +67,9 @@ const SEARCH_MEDIA_SCHEMA = {
         description: "Media type (movie, show, episode, artist, album, track)",
         enum: ["movie", "show", "episode", "artist", "album", "track"],
       },
+      libraryKey: { type: "string", description: "Library section key to restrict search (optional)" },
+      limit: { type: "number", description: "Number of items to return (default: 50)", default: 50 },
+      offset: { type: "number", description: "Zero-based offset for pagination (default: 0)", default: 0 },
     },
     required: ["query"],
   },
@@ -58,6 +104,48 @@ const GET_MEDIA_DETAILS_SCHEMA = {
       ratingKey: { type: "string", description: "The rating key of the media item" },
     },
     required: ["ratingKey"],
+  },
+};
+
+const GET_EDITABLE_FIELDS_SCHEMA = {
+  name: "get_editable_fields",
+  description: "Get editable fields and available tags for a media item",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
+
+const GET_PLAYLIST_ITEMS_SCHEMA = {
+  name: "get_playlist_items",
+  description: "Get items in a Plex playlist",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      playlistId: { type: "string", description: "Playlist rating key" },
+    },
+    required: ["playlistId"],
+  },
+};
+
+const GET_PLAYLISTS_SCHEMA = {
+  name: "get_playlists",
+  description: "Get all Plex playlists",
+  inputSchema: {
+    type: "object" as const,
+    properties: {},
+  },
+};
+
+const GET_WATCHLIST_SCHEMA = {
+  name: "get_watchlist",
+  description: "Get the user's Plex watchlist",
+  inputSchema: {
+    type: "object" as const,
+    properties: {},
   },
 };
 
@@ -177,13 +265,19 @@ const GET_POPULAR_CONTENT_SCHEMA = {
   },
 };
 
-/** Core tools shared by both servers (7 tools) */
+/** Core tools shared by both servers (13 tools) */
 export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_LIBRARIES_SCHEMA,
+  GET_LIBRARY_ITEMS_SCHEMA,
+  EXPORT_LIBRARY_SCHEMA,
   SEARCH_MEDIA_SCHEMA,
   GET_RECENTLY_ADDED_SCHEMA,
   GET_ON_DECK_SCHEMA,
   GET_MEDIA_DETAILS_SCHEMA,
+  GET_EDITABLE_FIELDS_SCHEMA,
+  GET_PLAYLIST_ITEMS_SCHEMA,
+  GET_PLAYLISTS_SCHEMA,
+  GET_WATCHLIST_SCHEMA,
   GET_RECENTLY_WATCHED_SCHEMA,
   GET_WATCH_HISTORY_SCHEMA,
 ];
@@ -197,7 +291,7 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
   GET_POPULAR_CONTENT_SCHEMA,
 ];
 
-/** All 12 Plex tool schemas */
+/** All 18 Plex tool schemas */
 export const PLEX_TOOL_SCHEMAS = [
   ...PLEX_CORE_TOOL_SCHEMAS,
   ...PLEX_EXTENDED_TOOL_SCHEMAS,

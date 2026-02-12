@@ -18,14 +18,20 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "axios": "^1.13.5"
+    "axios": "^1.13.5",
+    "dotenv": "^17.2.4"
   },
   "devDependencies": {
     "@types/node": "^25.2.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
-  "keywords": ["mcp", "plex", "ai", "context"],
+  "keywords": [
+    "mcp",
+    "plex",
+    "ai",
+    "context"
+  ],
   "author": "niavasha",
   "license": "MIT"
 }

@@ -29,14 +29,39 @@ export class ToolRegistry {
   }
 }
 
-/** Pre-registers all 12 Plex tools */
+/** Pre-registers all Plex tools */
 export function createPlexToolRegistry(tools: PlexTools): ToolRegistry {
   const registry = new ToolRegistry();
 
   registry.register("get_libraries", () => tools.getLibraries());
 
+  registry.register("get_library_items", (args) =>
+    tools.getLibraryItems(
+      args.libraryKey as string,
+      args.type as string | undefined,
+      (args.limit as number) || DEFAULT_LIMITS.libraryItems,
+      (args.offset as number) || 0,
+      args.sort as string | undefined
+    )
+  );
+
+  registry.register("export_library", (args) =>
+    tools.exportLibrary(
+      args.libraryKey as string,
+      args.type as string | undefined,
+      args.outputPath as string | undefined,
+      (args.pageSize as number) || DEFAULT_LIMITS.exportPageSize
+    )
+  );
+
   registry.register("search_media", (args) =>
-    tools.searchMedia(args.query as string, args.type as string | undefined)
+    tools.searchMedia(
+      args.query as string,
+      args.type as string | undefined,
+      args.libraryKey as string | undefined,
+      (args.limit as number) || DEFAULT_LIMITS.searchMedia,
+      (args.offset as number) || 0
+    )
   );
 
   registry.register("get_recently_added", (args) =>
@@ -48,6 +73,18 @@ export function createPlexToolRegistry(tools: PlexTools): ToolRegistry {
   registry.register("get_media_details", (args) =>
     tools.getMediaDetails(args.ratingKey as string)
   );
+
+  registry.register("get_editable_fields", (args) =>
+    tools.getEditableFields(args.ratingKey as string)
+  );
+
+  registry.register("get_playlist_items", (args) =>
+    tools.getPlaylistItems(args.playlistId as string)
+  );
+
+  registry.register("get_playlists", () => tools.getPlaylists());
+
+  registry.register("get_watchlist", () => tools.getWatchlist());
 
   registry.register("get_recently_watched", (args) =>
     tools.getRecentlyWatched(
