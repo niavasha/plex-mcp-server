@@ -1207,10 +1207,6 @@ export class PlexTools {
     });
   }
 
-  private getErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-  }
-
   private requireMutativeOpsEnabled(toolName: string): void {
     if (isMutativeOpsEnabled()) {
       return;
