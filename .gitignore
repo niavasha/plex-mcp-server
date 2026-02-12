@@ -151,6 +151,9 @@ test-results.xml
 tmp/
 temp/
 
+# Library exports
+exports/
+
 # API keys and secrets (if stored in files)
 *.key
 *.pem

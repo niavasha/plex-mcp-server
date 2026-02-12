@@ -9,6 +9,7 @@ import { PlexConfig } from "./types.js";
 import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE } from "./constants.js";
 import { PlexAPIClient } from "../trakt/sync.js";
 import { PlexMovie, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
+import { validatePlexId } from "../shared/utils.js";
 
 export class PlexClient implements PlexAPIClient {
   constructor(private config: PlexConfig) {}
@@ -125,10 +126,19 @@ export class PlexClient implements PlexAPIClient {
   }
 
   async markAsWatched(ratingKey: string, userId?: number): Promise<void> {
-    await this.makeRequest(`/:/scrobble?key=${ratingKey}&identifier=com.plexapp.plugins.library`);
+    validatePlexId(ratingKey, "ratingKey");
+    await this.makeRequest("/:/scrobble", {
+      key: ratingKey,
+      identifier: "com.plexapp.plugins.library",
+    });
   }
 
   async updateProgress(ratingKey: string, progress: number, userId?: number): Promise<void> {
-    await this.makeRequest(`/:/progress?key=${ratingKey}&time=${progress}&identifier=com.plexapp.plugins.library`);
+    validatePlexId(ratingKey, "ratingKey");
+    await this.makeRequest("/:/progress", {
+      key: ratingKey,
+      time: progress,
+      identifier: "com.plexapp.plugins.library",
+    });
   }
 }

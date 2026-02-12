@@ -2,6 +2,19 @@
  * Shared utility functions used across Plex and Trakt modules
  */
 
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+
+/**
+ * Validate that a value is a numeric Plex ID (ratingKey, libraryKey, playlistId, etc.)
+ * Prevents path traversal and injection when interpolated into API URLs.
+ */
+export function validatePlexId(value: string | undefined, paramName: string): string {
+  if (!value || !/^\d+$/.test(value)) {
+    throw new McpError(ErrorCode.InvalidRequest, `${paramName} must be a numeric Plex ID`);
+  }
+  return value;
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

@@ -10,7 +10,7 @@ import path from "node:path";
 import { PlexClient } from "./client.js";
 import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS, COMPLETION_THRESHOLD, PLEX_CONTAINER_SIZE, SUMMARY_PREVIEW_LENGTH } from "./constants.js";
-import { truncate } from "../shared/utils.js";
+import { truncate, validatePlexId } from "../shared/utils.js";
 
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
@@ -45,9 +45,7 @@ export class PlexTools {
     offset: number = 0,
     sort?: string
   ): Promise<MCPResponse> {
-    if (!libraryKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "libraryKey is required");
-    }
+    validatePlexId(libraryKey, "libraryKey");
 
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.libraryItems;
     const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
@@ -92,9 +90,7 @@ export class PlexTools {
     outputPath?: string,
     pageSize: number = DEFAULT_LIMITS.exportPageSize
   ): Promise<MCPResponse> {
-    if (!libraryKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "libraryKey is required");
-    }
+    validatePlexId(libraryKey, "libraryKey");
 
     const baseExportDir = path.resolve(process.cwd(), "exports");
     let exportPath: string;
@@ -221,6 +217,9 @@ export class PlexTools {
       params.type = this.client.getPlexTypeId(type);
     }
 
+    if (libraryKey) {
+      validatePlexId(libraryKey, "libraryKey");
+    }
     const endpoint = libraryKey ? `/library/sections/${libraryKey}/search` : "/search";
     const data = await this.client.makeRequest(endpoint, params);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
@@ -266,9 +265,7 @@ export class PlexTools {
   }
 
   async getPlaylistItems(playlistId: string): Promise<MCPResponse> {
-    if (!playlistId) {
-      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
-    }
+    validatePlexId(playlistId, "playlistId");
 
     const data = await this.client.makeRequest(`/playlists/${playlistId}/items`);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
@@ -323,9 +320,7 @@ export class PlexTools {
   }
 
   async getEditableFields(ratingKey: string): Promise<MCPResponse> {
-    if (!ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(ratingKey, "ratingKey");
 
     const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
@@ -411,6 +406,7 @@ export class PlexTools {
   }
 
   async getMediaDetails(ratingKey: string): Promise<MCPResponse> {
+    validatePlexId(ratingKey, "ratingKey");
     const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
     const item = container.MediaContainer?.Metadata?.[0];
@@ -545,6 +541,7 @@ export class PlexTools {
       };
 
       if (libraryKey) {
+        validatePlexId(libraryKey, "libraryKey");
         endpoint = `/library/sections/${libraryKey}/all`;
       }
       if (mediaType !== "all") {
@@ -673,6 +670,7 @@ export class PlexTools {
 
   async getLibraryStats(libraryKey?: string): Promise<MCPResponse> {
     if (libraryKey) {
+      validatePlexId(libraryKey, "libraryKey");
       const data = await this.client.makeRequest(`/library/sections/${libraryKey}`);
       const container = data as { MediaContainer?: { Directory?: Record<string, unknown>[] } };
       const library = container.MediaContainer?.Directory?.[0];
