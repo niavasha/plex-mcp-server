@@ -198,8 +198,18 @@ Once configured, you can ask your AI assistant:
 
 The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`, `get_user_stats`, `get_library_stats`, `get_popular_content`.
 
-When `PLEX_ENABLE_MUTATIVE_OPS=true`, Plex tools also include:
-`update_metadata`, `update_metadata_from_json`, `create_playlist`, `add_to_playlist`, `remove_from_playlist`, `clear_playlist`, `add_to_watchlist`, `remove_from_watchlist`.
+### Mutative Plex Tools (`PLEX_ENABLE_MUTATIVE_OPS=true`)
+
+| Function | Description |
+|----------|-------------|
+| `update_metadata` | Update metadata fields and editable tags for a media item |
+| `update_metadata_from_json` | Apply a metadata JSON payload using best-effort field mapping |
+| `create_playlist` | Create a new smart or static playlist |
+| `add_to_playlist` | Add a media item to a playlist |
+| `remove_from_playlist` | Remove an item from a playlist |
+| `clear_playlist` | Preview and optionally clear all items from a playlist (`confirm=true`) |
+| `add_to_watchlist` | Add a media item to the Plex watchlist |
+| `remove_from_watchlist` | Remove a media item from the Plex watchlist |
 
 ### Sonarr Tools (plex-arr-server)
 
