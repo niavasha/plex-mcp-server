@@ -266,6 +266,138 @@ const GET_POPULAR_CONTENT_SCHEMA = {
 };
 
 /** Core tools shared by both servers (13 tools) */
+const UPDATE_METADATA_SCHEMA = {
+  name: "update_metadata",
+  description: "Update metadata fields for a media item (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The rating key of the media item to update" },
+      title: { type: "string", description: "New title (optional)" },
+      sortTitle: { type: "string", description: "New sort title (optional)" },
+      originalTitle: { type: "string", description: "New original title (optional)" },
+      summary: { type: "string", description: "New summary/description (optional)" },
+      year: { type: "number", description: "New year (optional)" },
+      contentRating: { type: "string", description: "New content rating (optional)" },
+      rating: { type: "number", description: "New user rating (optional)" },
+      tagline: { type: "string", description: "New tagline (optional)" },
+      studio: { type: "string", description: "New studio (optional)" },
+      genres: { type: "array", description: "Replace genres with these tags (optional)", items: { type: "string" } },
+      collections: {
+        type: "array",
+        description: "Replace collections with these tags (optional)",
+        items: { type: "string" },
+      },
+      roles: { type: "array", description: "Replace roles/actors with these tags (optional)", items: { type: "string" } },
+      directors: {
+        type: "array",
+        description: "Replace directors with these tags (optional)",
+        items: { type: "string" },
+      },
+    },
+    required: ["ratingKey"],
+  },
+};
+
+const UPDATE_METADATA_FROM_JSON_SCHEMA = {
+  name: "update_metadata_from_json",
+  description: "Update metadata from a JSON payload (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The rating key of the media item to update" },
+      metadata: { type: "object", description: "Metadata payload to apply" },
+      setPosterFromUrl: {
+        type: "boolean",
+        description: "Attempt to set poster from metadata.images.posters[0].url",
+        default: false,
+      },
+    },
+    required: ["ratingKey", "metadata"],
+  },
+};
+
+const CREATE_PLAYLIST_SCHEMA = {
+  name: "create_playlist",
+  description: "Create a new Plex playlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      title: { type: "string", description: "Playlist title" },
+      type: {
+        type: "string",
+        description: "Playlist type (video, audio, photo) or media type (movie, show, episode, artist, album, track)",
+        enum: ["video", "audio", "photo", "movie", "show", "episode", "artist", "album", "track"],
+      },
+      ratingKeys: { type: "array", description: "Optional list of rating keys", items: { type: "string" } },
+      smart: { type: "boolean", description: "Create smart playlist (default: false)", default: false },
+    },
+    required: ["title", "type"],
+  },
+};
+
+const ADD_TO_PLAYLIST_SCHEMA = {
+  name: "add_to_playlist",
+  description: "Add a media item to a playlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      playlistId: { type: "string", description: "Playlist rating key" },
+      ratingKey: { type: "string", description: "Media rating key to add" },
+    },
+    required: ["playlistId", "ratingKey"],
+  },
+};
+
+const REMOVE_FROM_PLAYLIST_SCHEMA = {
+  name: "remove_from_playlist",
+  description: "Remove an item from a playlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      playlistId: { type: "string", description: "Playlist rating key" },
+      playlistItemId: { type: "string", description: "Playlist item ID to remove" },
+    },
+    required: ["playlistId", "playlistItemId"],
+  },
+};
+
+const CLEAR_PLAYLIST_SCHEMA = {
+  name: "clear_playlist",
+  description: "Clear all items from a playlist (preview unless confirm=true; requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      playlistId: { type: "string", description: "Playlist rating key" },
+      confirm: { type: "boolean", description: "Set true to execute clear after preview", default: false },
+    },
+    required: ["playlistId"],
+  },
+};
+
+const ADD_TO_WATCHLIST_SCHEMA = {
+  name: "add_to_watchlist",
+  description: "Add a media item to watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
+
+const REMOVE_FROM_WATCHLIST_SCHEMA = {
+  name: "remove_from_watchlist",
+  description: "Remove a media item from watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
 export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_LIBRARIES_SCHEMA,
   GET_LIBRARY_ITEMS_SCHEMA,
@@ -292,6 +424,17 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
 ];
 
 /** All 18 Plex tool schemas */
+/** Mutative tools (8 tools) — registered only when opt-in is enabled */
+export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
+  UPDATE_METADATA_SCHEMA,
+  UPDATE_METADATA_FROM_JSON_SCHEMA,
+  CREATE_PLAYLIST_SCHEMA,
+  ADD_TO_PLAYLIST_SCHEMA,
+  REMOVE_FROM_PLAYLIST_SCHEMA,
+  CLEAR_PLAYLIST_SCHEMA,
+  ADD_TO_WATCHLIST_SCHEMA,
+  REMOVE_FROM_WATCHLIST_SCHEMA,
+];
 export const PLEX_TOOL_SCHEMAS = [
   ...PLEX_CORE_TOOL_SCHEMAS,
   ...PLEX_EXTENDED_TOOL_SCHEMAS,

@@ -98,6 +98,8 @@ cp .env.example .env
 # Edit with your details
 PLEX_URL=http://localhost:32400
 PLEX_TOKEN=your_plex_token_here
+# Optional: enable mutative Plex tools (disabled by default)
+# PLEX_ENABLE_MUTATIVE_OPS=true
 ```
 
 3. **Configure your MCP client:**
@@ -113,7 +115,8 @@ Add to your MCP client configuration (e.g., Claude Desktop).
       "args": ["/path/to/plex-mcp-server/build/index.js"],
       "env": {
         "PLEX_URL": "http://localhost:32400",
-        "PLEX_TOKEN": "your_plex_token_here"
+        "PLEX_TOKEN": "your_plex_token_here",
+        "PLEX_ENABLE_MUTATIVE_OPS": "true"
       }
     }
   }
@@ -194,6 +197,19 @@ Once configured, you can ask your AI assistant:
 | `get_watch_history` | Detailed watch sessions |
 
 The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`, `get_user_stats`, `get_library_stats`, `get_popular_content`.
+
+### Mutative Plex Tools (`PLEX_ENABLE_MUTATIVE_OPS=true`)
+
+| Function | Description |
+|----------|-------------|
+| `update_metadata` | Update metadata fields and editable tags for a media item |
+| `update_metadata_from_json` | Apply a metadata JSON payload using best-effort field mapping |
+| `create_playlist` | Create a new smart or static playlist |
+| `add_to_playlist` | Add a media item to a playlist |
+| `remove_from_playlist` | Remove an item from a playlist |
+| `clear_playlist` | Preview and optionally clear all items from a playlist (`confirm=true`) |
+| `add_to_watchlist` | Add a media item to the Plex watchlist |
+| `remove_from_watchlist` | Remove a media item from the Plex watchlist |
 
 ### Sonarr Tools (plex-arr-server)
 

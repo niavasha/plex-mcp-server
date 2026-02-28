@@ -8,6 +8,9 @@ import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS } from "./constants.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
+type ToolRegistryOptions = {
+  includeMutative?: boolean;
+};
 
 export class ToolRegistry {
   private handlers = new Map<string, ToolHandler>();
@@ -29,8 +32,8 @@ export class ToolRegistry {
   }
 }
 
-/** Pre-registers all Plex tools */
-export function createPlexToolRegistry(tools: PlexTools): ToolRegistry {
+/** Pre-registers Plex tools; mutative tools are optional */
+export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOptions = {}): ToolRegistry {
   const registry = new ToolRegistry();
 
   registry.register("get_libraries", () => tools.getLibraries());
@@ -129,6 +132,64 @@ export function createPlexToolRegistry(tools: PlexTools): ToolRegistry {
       (args.limit as number) || DEFAULT_LIMITS.popularContent
     )
   );
+
+  if (options.includeMutative) {
+    registry.register("update_metadata", (args) =>
+      tools.updateMetadata({
+        ratingKey: args.ratingKey as string,
+        title: args.title as string | undefined,
+        sortTitle: args.sortTitle as string | undefined,
+        originalTitle: args.originalTitle as string | undefined,
+        summary: args.summary as string | undefined,
+        year: args.year as number | undefined,
+        contentRating: args.contentRating as string | undefined,
+        rating: args.rating as number | undefined,
+        tagline: args.tagline as string | undefined,
+        studio: args.studio as string | undefined,
+        genres: args.genres as unknown[] | undefined,
+        collections: args.collections as unknown[] | undefined,
+        roles: args.roles as unknown[] | undefined,
+        directors: args.directors as unknown[] | undefined,
+      })
+    );
+
+    registry.register("update_metadata_from_json", (args) =>
+      tools.updateMetadataFromJson(
+        args.ratingKey as string,
+        args.metadata as Record<string, unknown>,
+        (args.setPosterFromUrl as boolean) || false
+      )
+    );
+
+    registry.register("create_playlist", (args) =>
+      tools.createPlaylist(
+        args.title as string,
+        args.type as string,
+        args.ratingKeys as string[] | undefined,
+        args.smart as boolean | undefined
+      )
+    );
+
+    registry.register("add_to_playlist", (args) =>
+      tools.addToPlaylist(args.playlistId as string, args.ratingKey as string)
+    );
+
+    registry.register("remove_from_playlist", (args) =>
+      tools.removeFromPlaylist(args.playlistId as string, args.playlistItemId as string)
+    );
+
+    registry.register("clear_playlist", (args) =>
+      tools.clearPlaylist(args.playlistId as string, (args.confirm as boolean) || false)
+    );
+
+    registry.register("add_to_watchlist", (args) =>
+      tools.addToWatchlist(args.ratingKey as string)
+    );
+
+    registry.register("remove_from_watchlist", (args) =>
+      tools.removeFromWatchlist(args.ratingKey as string)
+    );
+  }
 
   return registry;
 }
