@@ -469,9 +469,7 @@ export class PlexTools {
 
   async updateMetadata(input: MetadataUpdateInput): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("update_metadata");
-    if (!input.ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(input.ratingKey, "ratingKey");
 
     const params: Record<string, string | number> = {};
     if (input.title !== undefined) params.title = input.title;
@@ -555,9 +553,7 @@ export class PlexTools {
     setPosterFromUrl: boolean = false
   ): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("update_metadata_from_json");
-    if (!ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(ratingKey, "ratingKey");
     if (!metadata || typeof metadata !== "object") {
       throw new McpError(ErrorCode.InvalidRequest, "metadata object is required");
     }
@@ -705,12 +701,8 @@ export class PlexTools {
 
   async addToPlaylist(playlistId: string, ratingKey: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("add_to_playlist");
-    if (!playlistId) {
-      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
-    }
-    if (!ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(playlistId, "playlistId");
+    validatePlexId(ratingKey, "ratingKey");
 
     const machineIdentifier = await this.getMachineIdentifier();
     const uri = `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKey}`;
@@ -747,12 +739,8 @@ export class PlexTools {
 
   async removeFromPlaylist(playlistId: string, playlistItemId: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("remove_from_playlist");
-    if (!playlistId) {
-      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
-    }
-    if (!playlistItemId) {
-      throw new McpError(ErrorCode.InvalidRequest, "playlistItemId is required");
-    }
+    validatePlexId(playlistId, "playlistId");
+    validatePlexId(playlistItemId, "playlistItemId");
 
     await this.client.makeRequest(`/playlists/${playlistId}/items/${playlistItemId}`, {}, "DELETE");
     return jsonResponse({
@@ -764,9 +752,7 @@ export class PlexTools {
 
   async clearPlaylist(playlistId: string, confirm: boolean = false): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("clear_playlist");
-    if (!playlistId) {
-      throw new McpError(ErrorCode.InvalidRequest, "playlistId is required");
-    }
+    validatePlexId(playlistId, "playlistId");
 
     const data = await this.client.makeRequest(`/playlists/${playlistId}/items`);
     const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
@@ -793,9 +779,7 @@ export class PlexTools {
 
   async addToWatchlist(ratingKey: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("add_to_watchlist");
-    if (!ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(ratingKey, "ratingKey");
 
     const attempts = [
       { endpoint: "/actions/addToWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
@@ -820,9 +804,7 @@ export class PlexTools {
 
   async removeFromWatchlist(ratingKey: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("remove_from_watchlist");
-    if (!ratingKey) {
-      throw new McpError(ErrorCode.InvalidRequest, "ratingKey is required");
-    }
+    validatePlexId(ratingKey, "ratingKey");
 
     const attempts = [
       { endpoint: "/actions/removeFromWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
@@ -1312,6 +1294,7 @@ export class PlexTools {
     items: string[],
     remove: boolean
   ): Promise<void> {
+    validatePlexId(libraryKey, "libraryKey");
     const params: Record<string, string | number> = {
       id: ratingKey,
       type: this.client.getPlexTypeId(itemType),
@@ -1338,6 +1321,7 @@ export class PlexTools {
   }
 
   private async getMediaContext(ratingKey: string): Promise<{ item: Record<string, unknown>; libraryKey: string }> {
+    validatePlexId(ratingKey, "ratingKey");
     const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
     const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
     const item = container.MediaContainer?.Metadata?.[0];
@@ -1363,6 +1347,7 @@ export class PlexTools {
     ratingKey: string,
     url: string
   ): Promise<{ success: boolean; error?: string }> {
+    validatePlexId(ratingKey, "ratingKey");
     if (!url) {
       return { success: false, error: "Poster update skipped: poster url is required" };
     }
@@ -1404,6 +1389,7 @@ export class PlexTools {
   }
 
   private async isItemInPlaylist(playlistId: string, ratingKey: string): Promise<{ found: boolean }> {
+    validatePlexId(playlistId, "playlistId");
     try {
       const data = await this.client.makeRequest(`/playlists/${playlistId}/items`, {
         "X-Plex-Container-Start": 0,
