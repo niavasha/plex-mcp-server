@@ -14,7 +14,9 @@ import {
   PlexTools,
   createPlexToolRegistry,
   PLEX_TOOL_SCHEMAS,
+  PLEX_MUTATIVE_TOOL_SCHEMAS,
   DEFAULT_PLEX_URL,
+  isMutativeOpsEnabled,
 } from "./plex/index.js";
 
 class PlexMCPServer {
@@ -36,11 +38,14 @@ class PlexMCPServer {
       token: plexToken,
     });
 
+    const mutativeEnabled = isMutativeOpsEnabled();
     const tools = new PlexTools(client);
-    const registry = createPlexToolRegistry(tools);
+    const registry = createPlexToolRegistry(tools, { includeMutative: mutativeEnabled });
 
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: PLEX_TOOL_SCHEMAS,
+      tools: mutativeEnabled
+        ? [...PLEX_TOOL_SCHEMAS, ...PLEX_MUTATIVE_TOOL_SCHEMAS]
+        : PLEX_TOOL_SCHEMAS,
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
