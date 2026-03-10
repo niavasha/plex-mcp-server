@@ -777,6 +777,19 @@ export class PlexTools {
     });
   }
 
+  async deletePlaylist(playlistId: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("delete_playlist");
+    validatePlexId(playlistId, "playlistId");
+
+    await this.client.makeRequest(`/playlists/${playlistId}`, {}, "DELETE");
+    return jsonResponse({
+      deleted: true,
+      playlistId,
+      mediaRetained: true,
+      message: "Deleted the playlist only; underlying Plex media was not removed",
+    });
+  }
+
   async addToWatchlist(ratingKey: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("add_to_watchlist");
     validatePlexId(ratingKey, "ratingKey");

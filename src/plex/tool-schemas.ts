@@ -375,6 +375,18 @@ const CLEAR_PLAYLIST_SCHEMA = {
   },
 };
 
+const DELETE_PLAYLIST_SCHEMA = {
+  name: "delete_playlist",
+  description: "Delete a Plex playlist without deleting the underlying media (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      playlistId: { type: "string", description: "Playlist rating key" },
+    },
+    required: ["playlistId"],
+  },
+};
+
 const ADD_TO_WATCHLIST_SCHEMA = {
   name: "add_to_watchlist",
   description: "Add a media item to watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
@@ -423,8 +435,8 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
   GET_POPULAR_CONTENT_SCHEMA,
 ];
 
-/** All 18 Plex tool schemas */
-/** Mutative tools (8 tools) — registered only when opt-in is enabled */
+/** All Plex tool schemas */
+/** Mutative tools (9 tools) — registered only when opt-in is enabled */
 export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   UPDATE_METADATA_SCHEMA,
   UPDATE_METADATA_FROM_JSON_SCHEMA,
@@ -432,6 +444,7 @@ export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   ADD_TO_PLAYLIST_SCHEMA,
   REMOVE_FROM_PLAYLIST_SCHEMA,
   CLEAR_PLAYLIST_SCHEMA,
+  DELETE_PLAYLIST_SCHEMA,
   ADD_TO_WATCHLIST_SCHEMA,
   REMOVE_FROM_WATCHLIST_SCHEMA,
 ];

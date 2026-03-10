@@ -208,6 +208,7 @@ The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`
 | `add_to_playlist` | Add a media item to a playlist |
 | `remove_from_playlist` | Remove an item from a playlist |
 | `clear_playlist` | Preview and optionally clear all items from a playlist (`confirm=true`) |
+| `delete_playlist` | Delete a playlist without deleting the underlying media |
 | `add_to_watchlist` | Add a media item to the Plex watchlist |
 | `remove_from_watchlist` | Remove a media item from the Plex watchlist |
 

@@ -182,6 +182,10 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
       tools.clearPlaylist(args.playlistId as string, (args.confirm as boolean) || false)
     );
 
+    registry.register("delete_playlist", (args) =>
+      tools.deletePlaylist(args.playlistId as string)
+    );
+
     registry.register("add_to_watchlist", (args) =>
       tools.addToWatchlist(args.ratingKey as string)
     );

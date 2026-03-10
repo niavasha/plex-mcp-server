@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
   - `add_to_playlist`
   - `remove_from_playlist`
   - `clear_playlist` (preview by default, apply when `confirm=true`)
+  - `delete_playlist`
   - `add_to_watchlist`
   - `remove_from_watchlist`
 
