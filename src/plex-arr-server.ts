@@ -2,7 +2,6 @@
 
 import "dotenv/config";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -20,6 +19,7 @@ import {
   DEFAULT_PLEX_URL,
   isMutativeOpsEnabled,
 } from "./plex/index.js";
+import { startServer } from "./shared/transport.js";
 
 // Arr integration
 import { ArrMCPFunctions } from "./arr/mcp-functions.js";
@@ -77,9 +77,7 @@ class PlexArrMCPServer {
   }
 
   async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error("Plex-Arr MCP server running on stdio");
+    await startServer(this.server, "Plex-Arr MCP server");
   }
 }
 
