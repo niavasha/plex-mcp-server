@@ -2,7 +2,6 @@
 
 import "dotenv/config";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -18,6 +17,7 @@ import {
   DEFAULT_PLEX_URL,
   isMutativeOpsEnabled,
 } from "./plex/index.js";
+import { startServer } from "./shared/transport.js";
 
 class PlexMCPServer {
   private server: Server;
@@ -61,9 +61,7 @@ class PlexMCPServer {
   }
 
   async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error("Plex MCP server running on stdio");
+    await startServer(this.server, "Plex MCP server");
   }
 }
 
