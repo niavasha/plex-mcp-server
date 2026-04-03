@@ -1,6 +1,6 @@
 {
   "name": "plex-mcp-server",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "MCP server for Plex Media Server with Trakt, Sonarr, and Radarr integration — enables AI assistants to manage your media library",
   "type": "module",
   "main": "build/index.js",
