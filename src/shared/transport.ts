@@ -63,7 +63,7 @@ export async function startServer(server: Server, serverName: string): Promise<v
 
   await server.connect(httpTransport);
 
-  const httpServer = createServer(async (req, res) => {
+  const httpServer = createServer(async (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (url.pathname === "/health" && req.method === "GET") {
