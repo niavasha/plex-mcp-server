@@ -1,11 +1,21 @@
 {
   "name": "plex-mcp-server",
-  "version": "0.1.0",
-  "description": "Model Context Protocol server for Plex",
+  "version": "1.0.0",
+  "description": "MCP server for Plex Media Server with Trakt, Sonarr, and Radarr integration — enables AI assistants to manage your media library",
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "plex-mcp-server": "build/index.js"
+    "plex-mcp-server": "build/index.js",
+    "plex-trakt-server": "build/plex-trakt-server.js",
+    "plex-arr-server": "build/plex-arr-server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/niavasha/plex-mcp-server.git"
+  },
+  "homepage": "https://github.com/niavasha/plex-mcp-server",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsc",
@@ -32,8 +42,15 @@
   "keywords": [
     "mcp",
     "plex",
+    "plex-media-server",
     "ai",
-    "context"
+    "claude",
+    "model-context-protocol",
+    "sonarr",
+    "radarr",
+    "trakt",
+    "media-server",
+    "home-automation"
   ],
   "author": "niavasha",
   "license": "MIT"

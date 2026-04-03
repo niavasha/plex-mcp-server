@@ -1,0 +1,12 @@
+src/
+docs/
+.claude/
+.github/
+.env
+.env.example
+CLAUDE.md
+vitest.config.ts
+tsconfig.json
+build/__tests__/
+build/enhanced_plex_mcp_index.*
+build/plex_mcp_server.*
