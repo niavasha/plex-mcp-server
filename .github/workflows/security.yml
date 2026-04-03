@@ -116,7 +116,7 @@ jobs:
     - name: Check licenses
       run: |
         npx license-checker --summary
-        npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense'
+        npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense;MPL-2.0'
 
   dockerfile-security:
     name: Dockerfile Security (if applicable)
