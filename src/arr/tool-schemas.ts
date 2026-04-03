@@ -13,6 +13,7 @@ export const SONARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         filter: { type: "string", description: "Optional title substring filter" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
     },
   },
@@ -23,6 +24,7 @@ export const SONARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         query: { type: "string", description: "Search query (series title)" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
       required: ["query"],
     },
@@ -57,14 +59,19 @@ export const SONARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         page: { type: "number", description: "Page number (default: 1)", default: 1 },
-        pageSize: { type: "number", description: "Items per page (default: 50)", default: 50 },
+        pageSize: { type: "number", description: "Items per page (default: 200)", default: 200 },
       },
     },
   },
   {
     name: "sonarr_get_queue",
     description: "Get the current Sonarr download queue",
-    inputSchema: { type: "object" as const, properties: {} },
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
+      },
+    },
   },
   {
     name: "sonarr_get_calendar",
@@ -74,6 +81,7 @@ export const SONARR_TOOL_SCHEMAS = [
       properties: {
         startDate: { type: "string", description: "Start date (YYYY-MM-DD, default: 7 days ago)" },
         endDate: { type: "string", description: "End date (YYYY-MM-DD, default: 30 days from now)" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
     },
   },
@@ -104,6 +112,7 @@ export const RADARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         filter: { type: "string", description: "Optional title substring filter" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
     },
   },
@@ -114,6 +123,7 @@ export const RADARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         query: { type: "string", description: "Search query (movie title)" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
       required: ["query"],
     },
@@ -147,14 +157,19 @@ export const RADARR_TOOL_SCHEMAS = [
       type: "object" as const,
       properties: {
         page: { type: "number", description: "Page number (default: 1)", default: 1 },
-        pageSize: { type: "number", description: "Items per page (default: 50)", default: 50 },
+        pageSize: { type: "number", description: "Items per page (default: 200)", default: 200 },
       },
     },
   },
   {
     name: "radarr_get_queue",
     description: "Get the current Radarr download queue",
-    inputSchema: { type: "object" as const, properties: {} },
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
+      },
+    },
   },
   {
     name: "radarr_get_calendar",
@@ -164,6 +179,7 @@ export const RADARR_TOOL_SCHEMAS = [
       properties: {
         startDate: { type: "string", description: "Start date (YYYY-MM-DD, default: 7 days ago)" },
         endDate: { type: "string", description: "End date (YYYY-MM-DD, default: 30 days from now)" },
+        limit: { type: "number", description: "Max results to return (default: 200)", default: 200 },
       },
     },
   },

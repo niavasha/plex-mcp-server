@@ -69,8 +69,10 @@ export class ArrMCPFunctions {
 
   async sonarrGetSeries(args: {
     filter?: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       let series = await client.getSeries();
       if (args.filter) {
@@ -80,7 +82,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         totalSeries: series.length,
-        series: series.slice(0, ARR_PREVIEW_LIMIT).map((s) => ({
+        series: series.slice(0, limit).map((s) => ({
           id: s.id,
           title: s.title,
           year: s.year,
@@ -96,7 +98,7 @@ export class ArrMCPFunctions {
           imdbId: s.imdbId,
           overview: s.overview ? truncate(s.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, series.length),
+        showing: Math.min(limit, series.length),
       };
     } catch (error) {
       return {
@@ -108,15 +110,17 @@ export class ArrMCPFunctions {
 
   async sonarrSearch(args: {
     query: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const results = await client.searchSeries(args.query);
       return {
         success: true,
         query: args.query,
         totalResults: results.length,
-        results: results.slice(0, ARR_PREVIEW_LIMIT).map((r) => ({
+        results: results.slice(0, limit).map((r) => ({
           tvdbId: r.tvdbId,
           title: r.title,
           year: r.year,
@@ -128,7 +132,7 @@ export class ArrMCPFunctions {
           seasonCount: r.seasons?.length || 0,
           overview: r.overview ? truncate(r.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, results.length),
+        showing: Math.min(limit, results.length),
       };
     } catch (error) {
       return {
@@ -224,7 +228,7 @@ export class ArrMCPFunctions {
         totalRecords: result.totalRecords,
         page: result.page,
         pageSize: result.pageSize,
-        episodes: result.records.slice(0, ARR_PREVIEW_LIMIT).map((ep) => ({
+        episodes: result.records.map((ep) => ({
           id: ep.id,
           seriesId: ep.seriesId,
           seasonNumber: ep.seasonNumber,
@@ -234,7 +238,7 @@ export class ArrMCPFunctions {
           monitored: ep.monitored,
           overview: ep.overview ? truncate(ep.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, result.records.length),
+        showing: result.records.length,
       };
     } catch (error) {
       return {
@@ -244,14 +248,17 @@ export class ArrMCPFunctions {
     }
   }
 
-  async sonarrGetQueue(): Promise<Record<string, unknown>> {
+  async sonarrGetQueue(args: {
+    limit?: number;
+  } = {}): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const queue = await client.getQueue();
       return {
         success: true,
         totalRecords: queue.totalRecords,
-        items: queue.records.slice(0, ARR_PREVIEW_LIMIT).map((item) => ({
+        items: queue.records.slice(0, limit).map((item) => ({
           id: item.id,
           title: item.title,
           status: item.status,
@@ -263,7 +270,7 @@ export class ArrMCPFunctions {
           sizeleft: item.sizeleft,
           timeleft: item.timeleft,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, queue.records.length),
+        showing: Math.min(limit, queue.records.length),
       };
     } catch (error) {
       return {
@@ -276,14 +283,16 @@ export class ArrMCPFunctions {
   async sonarrGetCalendar(args: {
     startDate?: string;
     endDate?: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const entries = await client.getCalendar(args.startDate, args.endDate);
       return {
         success: true,
         totalEntries: entries.length,
-        entries: entries.slice(0, ARR_PREVIEW_LIMIT).map((ep) => ({
+        entries: entries.slice(0, limit).map((ep) => ({
           id: ep.id,
           seriesId: ep.seriesId,
           seriesTitle: ep.series?.title,
@@ -296,7 +305,7 @@ export class ArrMCPFunctions {
           monitored: ep.monitored,
           overview: ep.overview ? truncate(ep.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, entries.length),
+        showing: Math.min(limit, entries.length),
       };
     } catch (error) {
       return {
@@ -366,8 +375,10 @@ export class ArrMCPFunctions {
 
   async radarrGetMovies(args: {
     filter?: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       let movies = await client.getMovies();
       if (args.filter) {
@@ -377,7 +388,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         totalMovies: movies.length,
-        movies: movies.slice(0, ARR_PREVIEW_LIMIT).map((m) => ({
+        movies: movies.slice(0, limit).map((m) => ({
           id: m.id,
           title: m.title,
           year: m.year,
@@ -391,7 +402,7 @@ export class ArrMCPFunctions {
           minimumAvailability: m.minimumAvailability,
           overview: m.overview ? truncate(m.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, movies.length),
+        showing: Math.min(limit, movies.length),
       };
     } catch (error) {
       return {
@@ -403,15 +414,17 @@ export class ArrMCPFunctions {
 
   async radarrSearch(args: {
     query: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const results = await client.searchMovies(args.query);
       return {
         success: true,
         query: args.query,
         totalResults: results.length,
-        results: results.slice(0, ARR_PREVIEW_LIMIT).map((r) => ({
+        results: results.slice(0, limit).map((r) => ({
           tmdbId: r.tmdbId,
           imdbId: r.imdbId,
           title: r.title,
@@ -422,7 +435,7 @@ export class ArrMCPFunctions {
           certification: r.certification,
           overview: r.overview ? truncate(r.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, results.length),
+        showing: Math.min(limit, results.length),
       };
     } catch (error) {
       return {
@@ -515,7 +528,7 @@ export class ArrMCPFunctions {
         totalRecords: result.totalRecords,
         page: result.page,
         pageSize: result.pageSize,
-        movies: result.records.slice(0, ARR_PREVIEW_LIMIT).map((m) => ({
+        movies: result.records.map((m) => ({
           id: m.id,
           title: m.title,
           year: m.year,
@@ -525,7 +538,7 @@ export class ArrMCPFunctions {
           imdbId: m.imdbId,
           overview: m.overview ? truncate(m.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, result.records.length),
+        showing: result.records.length,
       };
     } catch (error) {
       return {
@@ -535,14 +548,17 @@ export class ArrMCPFunctions {
     }
   }
 
-  async radarrGetQueue(): Promise<Record<string, unknown>> {
+  async radarrGetQueue(args: {
+    limit?: number;
+  } = {}): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const queue = await client.getQueue();
       return {
         success: true,
         totalRecords: queue.totalRecords,
-        items: queue.records.slice(0, ARR_PREVIEW_LIMIT).map((item) => ({
+        items: queue.records.slice(0, limit).map((item) => ({
           id: item.id,
           title: item.title,
           status: item.status,
@@ -554,7 +570,7 @@ export class ArrMCPFunctions {
           sizeleft: item.sizeleft,
           timeleft: item.timeleft,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, queue.records.length),
+        showing: Math.min(limit, queue.records.length),
       };
     } catch (error) {
       return {
@@ -567,14 +583,16 @@ export class ArrMCPFunctions {
   async radarrGetCalendar(args: {
     startDate?: string;
     endDate?: string;
+    limit?: number;
   }): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
+    const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
       const entries = await client.getCalendar(args.startDate, args.endDate);
       return {
         success: true,
         totalEntries: entries.length,
-        entries: entries.slice(0, ARR_PREVIEW_LIMIT).map((m) => ({
+        entries: entries.slice(0, limit).map((m) => ({
           id: m.id,
           title: m.title,
           year: m.year,
@@ -587,7 +605,7 @@ export class ArrMCPFunctions {
           tmdbId: m.tmdbId,
           overview: m.overview ? truncate(m.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
-        showing: Math.min(ARR_PREVIEW_LIMIT, entries.length),
+        showing: Math.min(limit, entries.length),
       };
     } catch (error) {
       return {

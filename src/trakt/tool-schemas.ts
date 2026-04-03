@@ -86,6 +86,7 @@ export const TRAKT_TOOL_SCHEMAS = [
         query: { type: "string", description: "Search query" },
         type: { type: "string", enum: ["movie", "show"], description: "Optional media type filter" },
         year: { type: "number", description: "Optional year filter" },
+        limit: { type: "number", description: "Max results to return (default: 100)", default: 100 },
       },
       required: ["query"],
     },

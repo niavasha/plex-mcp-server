@@ -24,7 +24,7 @@ const GET_LIBRARY_ITEMS_SCHEMA = {
         description: "Media type (movie, show, episode, artist, album, track)",
         enum: ["movie", "show", "episode", "artist", "album", "track"],
       },
-      limit: { type: "number", description: "Number of items to return (default: 200)", default: 200 },
+      limit: { type: "number", description: "Number of items to return (default: 1000)", default: 1000 },
       offset: { type: "number", description: "Zero-based offset for pagination (default: 0)", default: 0 },
       sort: { type: "string", description: "Sort order (optional, e.g., titleSort:asc)" },
     },
@@ -68,7 +68,7 @@ const SEARCH_MEDIA_SCHEMA = {
         enum: ["movie", "show", "episode", "artist", "album", "track"],
       },
       libraryKey: { type: "string", description: "Library section key to restrict search (optional)" },
-      limit: { type: "number", description: "Number of items to return (default: 50)", default: 50 },
+      limit: { type: "number", description: "Number of items to return (default: 500)", default: 500 },
       offset: { type: "number", description: "Zero-based offset for pagination (default: 0)", default: 0 },
     },
     required: ["query"],
@@ -81,7 +81,7 @@ const GET_RECENTLY_ADDED_SCHEMA = {
   inputSchema: {
     type: "object" as const,
     properties: {
-      limit: { type: "number", description: "Number of items to return (default: 10)", default: 10 },
+      limit: { type: "number", description: "Number of items to return (default: 50)", default: 50 },
     },
   },
 };
@@ -155,7 +155,7 @@ const GET_RECENTLY_WATCHED_SCHEMA = {
   inputSchema: {
     type: "object" as const,
     properties: {
-      limit: { type: "number", description: "Number of items to return (default: 25)", default: 25 },
+      limit: { type: "number", description: "Number of items to return (default: 100)", default: 100 },
       mediaType: {
         type: "string",
         description: "Filter by media type (movie, show, episode, all)",
@@ -172,7 +172,7 @@ const GET_WATCH_HISTORY_SCHEMA = {
   inputSchema: {
     type: "object" as const,
     properties: {
-      limit: { type: "number", description: "Number of sessions to return (default: 50)", default: 50 },
+      limit: { type: "number", description: "Number of sessions to return (default: 500)", default: 500 },
       userId: { type: "string", description: "Filter by specific user ID (optional)" },
       mediaType: {
         type: "string",
@@ -197,7 +197,7 @@ const GET_FULLY_WATCHED_SCHEMA = {
         enum: ["movie", "show", "all"],
         default: "all",
       },
-      limit: { type: "number", description: "Number of items to return (default: 100)", default: 100 },
+      limit: { type: "number", description: "Number of items to return (default: 500)", default: 500 },
     },
   },
 };
@@ -260,7 +260,7 @@ const GET_POPULAR_CONTENT_SCHEMA = {
         enum: ["movie", "show", "episode", "all"],
         default: "all",
       },
-      limit: { type: "number", description: "Number of items to return (default: 10)", default: 10 },
+      limit: { type: "number", description: "Number of items to return (default: 50)", default: 50 },
     },
   },
 };

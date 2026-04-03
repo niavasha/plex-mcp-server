@@ -12,11 +12,11 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
   // ──── Sonarr tools ────
 
   registry.register("sonarr_get_series", (args) =>
-    arrFunctions.sonarrGetSeries({ filter: args.filter as string | undefined }).then(wrapResponse)
+    arrFunctions.sonarrGetSeries({ filter: args.filter as string | undefined, limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("sonarr_search", (args) =>
-    arrFunctions.sonarrSearch({ query: args.query as string }).then(wrapResponse)
+    arrFunctions.sonarrSearch({ query: args.query as string, limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("sonarr_add_series", (args) =>
@@ -39,14 +39,15 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
     }).then(wrapResponse)
   );
 
-  registry.register("sonarr_get_queue", () =>
-    arrFunctions.sonarrGetQueue().then(wrapResponse)
+  registry.register("sonarr_get_queue", (args) =>
+    arrFunctions.sonarrGetQueue({ limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("sonarr_get_calendar", (args) =>
     arrFunctions.sonarrGetCalendar({
       startDate: args.startDate as string | undefined,
       endDate: args.endDate as string | undefined,
+      limit: args.limit as number | undefined,
     }).then(wrapResponse)
   );
 
@@ -63,11 +64,11 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
   // ──── Radarr tools ────
 
   registry.register("radarr_get_movies", (args) =>
-    arrFunctions.radarrGetMovies({ filter: args.filter as string | undefined }).then(wrapResponse)
+    arrFunctions.radarrGetMovies({ filter: args.filter as string | undefined, limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("radarr_search", (args) =>
-    arrFunctions.radarrSearch({ query: args.query as string }).then(wrapResponse)
+    arrFunctions.radarrSearch({ query: args.query as string, limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("radarr_add_movie", (args) =>
@@ -89,14 +90,15 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
     }).then(wrapResponse)
   );
 
-  registry.register("radarr_get_queue", () =>
-    arrFunctions.radarrGetQueue().then(wrapResponse)
+  registry.register("radarr_get_queue", (args) =>
+    arrFunctions.radarrGetQueue({ limit: args.limit as number | undefined }).then(wrapResponse)
   );
 
   registry.register("radarr_get_calendar", (args) =>
     arrFunctions.radarrGetCalendar({
       startDate: args.startDate as string | undefined,
       endDate: args.endDate as string | undefined,
+      limit: args.limit as number | undefined,
     }).then(wrapResponse)
   );
 

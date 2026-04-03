@@ -12,19 +12,19 @@ export const PLEX_TYPE_IDS: Record<string, number> = {
 };
 
 export const DEFAULT_LIMITS = {
-  recentlyAdded: 10,
-  recentlyWatched: 25,
-  watchHistory: 50,
-  fullyWatched: 100,
-  popularContent: 10,
-  libraryItems: 200,
-  searchMedia: 50,
+  recentlyAdded: 50,
+  recentlyWatched: 100,
+  watchHistory: 500,
+  fullyWatched: 500,
+  popularContent: 50,
+  libraryItems: 1000,
+  searchMedia: 500,
   exportPageSize: 500,
 } as const;
 
 export const DEFAULT_PLEX_URL = "http://localhost:32400";
 export const PLEX_CONTAINER_SIZE = 1000;
-export const SUMMARY_PREVIEW_LENGTH = 200;
+export const SUMMARY_PREVIEW_LENGTH = 500;
 export const PLEX_MUTATIVE_OPS_ENV_VAR = "PLEX_ENABLE_MUTATIVE_OPS";
 
 /** Standardized completion threshold (90%) — was inconsistent 85%/90% across codebase */

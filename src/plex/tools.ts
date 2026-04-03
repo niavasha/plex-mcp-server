@@ -263,9 +263,8 @@ export class PlexTools {
         title: item.title,
         type: item.type,
         year: item.year,
-        summary: item.summary,
+        summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
         rating: item.rating,
-        thumb: item.thumb,
       })),
     });
   }
@@ -285,7 +284,7 @@ export class PlexTools {
         smart: playlist.smart,
         leafCount: playlist.leafCount,
         duration: playlist.duration,
-        summary: playlist.summary,
+        summary: playlist.summary ? truncate(String(playlist.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
         updatedAt: playlist.updatedAt,
         addedAt: playlist.addedAt,
       })),
@@ -308,7 +307,7 @@ export class PlexTools {
         type: item.type,
         year: item.year,
         duration: item.duration,
-        summary: item.summary,
+        summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
       })),
     });
   }
@@ -329,7 +328,7 @@ export class PlexTools {
             title: item.title,
             type: item.type,
             year: item.year,
-            summary: item.summary,
+            summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
             addedAt: item.addedAt,
           })),
           ...(endpoint !== endpoints[0] ? { note: "Retrieved using fallback watchlist endpoint" } : {}),
@@ -411,7 +410,7 @@ export class PlexTools {
         type: item.type,
         year: item.year,
         addedAt: item.addedAt,
-        summary: item.summary,
+        summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
       })),
     });
   }
@@ -1059,7 +1058,6 @@ export class PlexTools {
           id: user.id,
           name: user.name,
           email: user.email,
-          thumb: user.thumb,
         })),
         totalUsers: users.length,
       });
@@ -1128,7 +1126,7 @@ export class PlexTools {
       for (const library of libraries) {
         try {
           const params: Record<string, string | number> = {
-            "X-Plex-Container-Size": 500,
+            "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
             sort: metric === "plays" ? "viewCount:desc" : "lastViewedAt:desc",
           };
           if (mediaType !== "all") {

@@ -11,7 +11,7 @@ export const TRAKT_RATE_LIMIT_BACKOFF_MULTIPLIER = 2;
 export const TRAKT_BATCH_DELAY_MS = 1000;
 export const DEFAULT_BATCH_SIZE = 50;
 export const INCREMENTAL_BATCH_SIZE = 25;
-export const TRAKT_PREVIEW_LIMIT = 10;
+export const TRAKT_PREVIEW_LIMIT = 100;
 
 export const ACHIEVEMENT_THRESHOLDS = {
   movies: 100,

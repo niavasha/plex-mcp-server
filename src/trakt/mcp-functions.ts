@@ -386,20 +386,21 @@ export class TraktMCPFunctions {
    * MCP Function: trakt_search
    * Search for content on Trakt
    */
-  async traktSearch(query: string, type?: 'movie' | 'show', year?: number): Promise<Record<string, unknown>> {
+  async traktSearch(query: string, type?: 'movie' | 'show', year?: number, limit?: number): Promise<Record<string, unknown>> {
     if (!this.isInitialized) {
       this.initializeTraktClient();
     }
 
+    const effectiveLimit = limit || TRAKT_PREVIEW_LIMIT;
     try {
       const results = await this.traktClient.search(query, type, year);
-      
+
       return {
         success: true,
         query,
         type: type || 'all',
         year,
-        results: results.slice(0, TRAKT_PREVIEW_LIMIT).map(result => {
+        results: results.slice(0, effectiveLimit).map(result => {
           const media = result.type === 'movie' ? result.movie : result.show;
           return {
             type: result.type,
@@ -413,7 +414,7 @@ export class TraktMCPFunctions {
           };
         }),
         totalResults: results.length,
-        showing: Math.min(TRAKT_PREVIEW_LIMIT, results.length)
+        showing: Math.min(effectiveLimit, results.length)
       };
     } catch (error) {
       return {

@@ -56,6 +56,7 @@ export function createTraktToolRegistry(traktFunctions: TraktMCPFunctions): Tool
       args.query as string,
       args.type as "movie" | "show" | undefined,
       args.year as number | undefined,
+      args.limit as number | undefined,
     ).then(wrapResponse)
   );
 
