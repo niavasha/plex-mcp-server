@@ -92,7 +92,7 @@ jobs:
         fetch-depth: 0
     
     - name: Run TruffleHog
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@b0ee281ec37fa5b33470fad59b058e406a849cad # main
       with:
         extra_args: --only-verified
 
@@ -128,7 +128,7 @@ jobs:
       uses: actions/checkout@v6
     
     - name: Run Hadolint
-      uses: hadolint/hadolint-action@v3.3.0
+      uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
       with:
         dockerfile: Dockerfile
         failure-threshold: warning
