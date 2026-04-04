@@ -123,7 +123,7 @@ Once configured, you can ask your AI assistant:
 "Search for Christopher Nolan movies in my library"
 "What's on my continue watching list?"
 "List all my Plex libraries"
-"Add The Bear to Sonarr"
+"Add that new show to Sonarr"
 "What's in my Radarr download queue?"
 "Sync my Plex history to Trakt"
 ```
@@ -137,8 +137,8 @@ Once configured, you can ask your AI assistant:
 4. Ask: *"Sync my Plex watch history to Trakt"* — run the actual sync
 
 **Find and add new content:**
-1. Ask: *"Search Sonarr for Severance"* — find the TVDB ID
-2. Ask: *"Add Severance to Sonarr"* — it auto-detects quality profiles and root folders
+1. Ask: *"Search Sonarr for Doctor Who"* — find the TVDB ID
+2. Ask: *"Add Doctor Who to Sonarr"* — it auto-detects quality profiles and root folders
 3. Ask: *"What's in my Sonarr download queue?"* — monitor progress
 
 **Get personalized recommendations:**
