@@ -10,6 +10,7 @@ import { DEFAULT_LIMITS } from "./constants.js";
 type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
 type TraktStatsProvider = {
   traktGetUserStats(): Promise<Record<string, unknown>>;
+  getWatchedMovieTitles(): Promise<Array<{ title: string; year: number; plays: number }> | null>;
 };
 
 type ToolRegistryOptions = {
@@ -140,11 +141,13 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
 
   registry.register("get_recommendations", async (args) => {
     let qualityBias = 1.0;
+    let traktWatchedTitles: Set<string> | undefined;
 
     if (options.traktFunctions && process.env.TRAKT_ACCESS_TOKEN) {
       try {
-        const result = await options.traktFunctions.traktGetUserStats();
-        const stats = result?.stats as Record<string, unknown> | undefined;
+        // Fetch Trakt rating distribution for quality bias
+        const statsResult = await options.traktFunctions.traktGetUserStats();
+        const stats = statsResult?.stats as Record<string, unknown> | undefined;
         const traktStats = stats?.traktStats as Record<string, unknown> | undefined;
         const ratings = traktStats?.ratings as { distribution?: Record<string, number> } | undefined;
         const dist = ratings?.distribution;
@@ -158,6 +161,14 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
             qualityBias = avgRating < 6 ? 1.2 : avgRating > 8 ? 0.85 : 1.0;
           }
         }
+
+        // Fetch all Trakt watched movies to supplement Plex watch history
+        const watchedMovies = await options.traktFunctions.getWatchedMovieTitles();
+        if (watchedMovies) {
+          traktWatchedTitles = new Set(
+            watchedMovies.map((m) => `${m.title.toLowerCase()}|${m.year}`)
+          );
+        }
       } catch {
         // Trakt unavailable — silently use default
       }
@@ -167,7 +178,8 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
       args.libraryKey as string,
       (args.limit as number) || DEFAULT_LIMITS.recommendations,
       args.userId as string | undefined,
-      qualityBias
+      qualityBias,
+      traktWatchedTitles
     );
   });
 

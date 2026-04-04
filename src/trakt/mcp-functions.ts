@@ -27,6 +27,24 @@ export class TraktMCPFunctions {
   }
 
   /**
+   * Get all watched movie titles from Trakt (for recommendation engine).
+   * Returns null if Trakt is not configured/authenticated.
+   */
+  async getWatchedMovieTitles(): Promise<Array<{ title: string; year: number; plays: number }> | null> {
+    try {
+      this.initializeTraktClient();
+      const watched = await this.traktClient.getWatchedMovies();
+      return watched.map((item) => ({
+        title: item.movie.title,
+        year: item.movie.year,
+        plays: item.plays,
+      }));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Initialize Trakt client with configuration
    */
   private initializeTraktClient(): void {

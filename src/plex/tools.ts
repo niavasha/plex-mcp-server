@@ -1731,10 +1731,24 @@ export class PlexTools {
     limit: number = DEFAULT_LIMITS.recommendations,
     userId?: string,
     qualityBias: number = 1.0,
+    traktWatchedTitles?: Set<string>,
   ): Promise<MCPResponse> {
     const allMovies = await this.client.getLibraryMoviesWithMeta(libraryKey, userId);
-    const watched = allMovies.filter((m) => m.viewCount > 0);
-    const unwatched = allMovies.filter((m) => m.viewCount === 0);
+
+    // Merge Plex and Trakt watched data — Trakt catches off-Plex watches
+    const isWatched = (m: LibraryMovieRecord): boolean => {
+      if (m.viewCount > 0) return true;
+      if (traktWatchedTitles && m.year) {
+        return traktWatchedTitles.has(`${m.title.toLowerCase()}|${m.year}`);
+      }
+      return false;
+    };
+
+    const watched = allMovies.filter(isWatched);
+    const unwatched = allMovies.filter((m) => !isWatched(m));
+    const traktOnlyCount = traktWatchedTitles
+      ? watched.filter((m) => m.viewCount === 0).length
+      : 0;
 
     if (watched.length < MIN_WATCHED_FOR_RECOMMENDATIONS) {
       return jsonResponse({
@@ -1778,6 +1792,7 @@ export class PlexTools {
       libraryKey,
       watchedCount: watched.length,
       unwatchedCount: unwatched.length,
+      traktExtraWatched: traktOnlyCount > 0 ? traktOnlyCount : undefined,
       userId: userId || "server_owner",
       tasteProfile: {
         topGenres,
@@ -1785,7 +1800,7 @@ export class PlexTools {
         topActors,
         avgRating: Math.round(profile.weightedAvgRating * 10) / 10,
       },
-      traktEnhanced: qualityBias !== 1.0,
+      traktEnhanced: qualityBias !== 1.0 || traktOnlyCount > 0,
       recommendations: diverse.slice(0, limit).map((m) => ({
         ratingKey: m.ratingKey,
         title: m.title,
