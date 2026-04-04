@@ -5,7 +5,7 @@
  */
 
 import axios, { AxiosRequestConfig } from "axios";
-import { PlexConfig } from "./types.js";
+import { PlexConfig, LibraryMovieRecord } from "./types.js";
 import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE } from "./constants.js";
 import { PlexAPIClient } from "../trakt/sync.js";
 import { PlexMovie, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
@@ -61,6 +61,45 @@ export class PlexClient implements PlexAPIClient {
         genres: (item.Genre as Array<{ tag: string }> | undefined)?.map((g) => g.tag) || [],
         summary: item.summary as string | undefined,
       }));
+  }
+
+  async getLibraryMoviesWithMeta(libraryKey: string, userId?: string): Promise<LibraryMovieRecord[]> {
+    const allMovies: LibraryMovieRecord[] = [];
+    let offset = 0;
+    const pageSize = PLEX_CONTAINER_SIZE;
+
+    while (true) {
+      const params: Record<string, string | number> = {
+        type: 1,
+        "X-Plex-Container-Start": offset,
+        "X-Plex-Container-Size": pageSize,
+      };
+      if (userId) params.accountID = userId;
+
+      const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, params);
+      const container = data as { MediaContainer?: { totalSize?: number; Metadata?: Record<string, unknown>[] } };
+      const totalSize = container.MediaContainer?.totalSize || 0;
+      const items = container.MediaContainer?.Metadata || [];
+
+      for (const item of items) {
+        allMovies.push({
+          ratingKey: item.ratingKey as string,
+          title: item.title as string,
+          year: item.year as number | undefined,
+          viewCount: (item.viewCount as number) || 0,
+          lastViewedAt: item.lastViewedAt as number | undefined,
+          rating: item.audienceRating as number | undefined ?? item.rating as number | undefined,
+          genres: (item.Genre as Array<{ tag: string }> | undefined)?.map((g) => g.tag) || [],
+          directors: (item.Director as Array<{ tag: string }> | undefined)?.map((d) => d.tag) || [],
+          actors: (item.Role as Array<{ tag: string }> | undefined)?.map((r) => r.tag) || [],
+        });
+      }
+
+      offset += items.length;
+      if (offset >= totalSize || items.length === 0) break;
+    }
+
+    return allMovies;
   }
 
   async getWatchedEpisodes(userId?: number): Promise<PlexEpisode[]> {

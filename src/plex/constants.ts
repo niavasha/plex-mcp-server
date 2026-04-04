@@ -20,7 +20,15 @@ export const DEFAULT_LIMITS = {
   libraryItems: 1000,
   searchMedia: 500,
   exportPageSize: 500,
+  recommendations: 10,
 } as const;
+
+// Recommendation engine constants
+export const RECENCY_HALF_LIFE_DAYS = 180;
+export const TASTE_TOP_GENRES = 10;
+export const TASTE_TOP_DIRECTORS = 10;
+export const TASTE_TOP_ACTORS = 20;
+export const MIN_WATCHED_FOR_RECOMMENDATIONS = 5;
 
 export const DEFAULT_PLEX_URL = "http://localhost:32400";
 export const PLEX_CONTAINER_SIZE = 1000;

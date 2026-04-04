@@ -52,8 +52,11 @@ class UnifiedMCPServer {
 
     const mutativeEnabled = isMutativeOpsEnabled();
     const plexTools = new PlexTools(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools, { includeMutative: mutativeEnabled });
     const traktFunctions = new TraktMCPFunctions(plexClient);
+    const plexRegistry = createPlexToolRegistry(plexTools, {
+      includeMutative: mutativeEnabled,
+      traktFunctions,
+    });
     const traktRegistry = createTraktToolRegistry(traktFunctions);
     const arrFunctions = new ArrMCPFunctions();
     const arrRegistry = createArrToolRegistry(arrFunctions);

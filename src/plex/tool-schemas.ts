@@ -426,13 +426,44 @@ export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_WATCH_HISTORY_SCHEMA,
 ];
 
-/** Extended analytics tools (5 tools) — only in standalone Plex server */
+const GET_RECOMMENDATIONS_SCHEMA = {
+  name: "get_recommendations",
+  description:
+    "Get personalized movie recommendations from your Plex library based on watch history. " +
+    "Analyzes genres, directors, and actors you've watched to score unwatched films. " +
+    "Supports per-user recommendations for multi-user Plex servers. " +
+    "If Trakt is configured, uses your rating profile to further refine scores.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      libraryKey: {
+        type: "string",
+        description: "Library section key (required — use get_libraries to find it)",
+      },
+      limit: {
+        type: "number",
+        description: "Number of recommendations to return (default: 10)",
+        default: 10,
+      },
+      userId: {
+        type: "string",
+        description:
+          "Plex account ID for per-user recommendations. " +
+          "Omit to use the server owner. Use get_user_stats to find user IDs.",
+      },
+    },
+    required: ["libraryKey"],
+  },
+};
+
+/** Extended analytics tools (6 tools) */
 const PLEX_EXTENDED_TOOL_SCHEMAS = [
   GET_FULLY_WATCHED_SCHEMA,
   GET_WATCH_STATS_SCHEMA,
   GET_USER_STATS_SCHEMA,
   GET_LIBRARY_STATS_SCHEMA,
   GET_POPULAR_CONTENT_SCHEMA,
+  GET_RECOMMENDATIONS_SCHEMA,
 ];
 
 /** All Plex tool schemas */

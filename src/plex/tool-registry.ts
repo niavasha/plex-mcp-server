@@ -8,8 +8,13 @@ import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS } from "./constants.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
+type TraktStatsProvider = {
+  traktGetUserStats(): Promise<Record<string, unknown>>;
+};
+
 type ToolRegistryOptions = {
   includeMutative?: boolean;
+  traktFunctions?: TraktStatsProvider;
 };
 
 export class ToolRegistry {
@@ -132,6 +137,39 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
       (args.limit as number) || DEFAULT_LIMITS.popularContent
     )
   );
+
+  registry.register("get_recommendations", async (args) => {
+    let qualityBias = 1.0;
+
+    if (options.traktFunctions && process.env.TRAKT_ACCESS_TOKEN) {
+      try {
+        const result = await options.traktFunctions.traktGetUserStats();
+        const stats = result?.stats as Record<string, unknown> | undefined;
+        const traktStats = stats?.traktStats as Record<string, unknown> | undefined;
+        const ratings = traktStats?.ratings as { distribution?: Record<string, number> } | undefined;
+        const dist = ratings?.distribution;
+        if (dist) {
+          const totalRatings = Object.values(dist).reduce((a, b) => a + b, 0);
+          if (totalRatings > 0) {
+            const weightedSum = Object.entries(dist).reduce(
+              (sum, [rating, count]) => sum + Number(rating) * count, 0
+            );
+            const avgRating = weightedSum / totalRatings;
+            qualityBias = avgRating < 6 ? 1.2 : avgRating > 8 ? 0.85 : 1.0;
+          }
+        }
+      } catch {
+        // Trakt unavailable — silently use default
+      }
+    }
+
+    return tools.getRecommendations(
+      args.libraryKey as string,
+      (args.limit as number) || DEFAULT_LIMITS.recommendations,
+      args.userId as string | undefined,
+      qualityBias
+    );
+  });
 
   if (options.includeMutative) {
     registry.register("update_metadata", (args) =>

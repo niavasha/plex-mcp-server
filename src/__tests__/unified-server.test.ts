@@ -24,17 +24,17 @@ describe("Unified server — tool registration", () => {
     ...PLEX_MUTATIVE_TOOL_SCHEMAS,
   ];
 
-  it("registers exactly 44 tools without mutative ops", () => {
+  it("registers exactly 45 tools without mutative ops", () => {
     const names = allBaseSchemas.map((s) => s.name);
-    expect(names).toHaveLength(44);
+    expect(names).toHaveLength(45);
     // No duplicates
-    expect(new Set(names).size).toBe(44);
+    expect(new Set(names).size).toBe(45);
   });
 
-  it("registers exactly 53 tools with mutative ops", () => {
+  it("registers exactly 54 tools with mutative ops", () => {
     const names = allSchemasWithMutative.map((s) => s.name);
-    expect(names).toHaveLength(53);
-    expect(new Set(names).size).toBe(53);
+    expect(names).toHaveLength(54);
+    expect(new Set(names).size).toBe(54);
   });
 
   it("includes plex core tools", () => {

@@ -8,7 +8,7 @@ import { createWriteStream } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient } from "./client.js";
-import { MCPResponse } from "./types.js";
+import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -16,6 +16,11 @@ import {
   SUMMARY_PREVIEW_LENGTH,
   PLEX_MUTATIVE_OPS_ENV_VAR,
   isMutativeOpsEnabled,
+  RECENCY_HALF_LIFE_DAYS,
+  TASTE_TOP_GENRES,
+  TASTE_TOP_DIRECTORS,
+  TASTE_TOP_ACTORS,
+  MIN_WATCHED_FOR_RECOMMENDATIONS,
 } from "./constants.js";
 import { truncate, validatePlexId } from "../shared/utils.js";
 
@@ -1717,5 +1722,206 @@ export class PlexTools {
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10),
     };
+  }
+
+  // ──── Recommendations ────
+
+  async getRecommendations(
+    libraryKey: string,
+    limit: number = DEFAULT_LIMITS.recommendations,
+    userId?: string,
+    qualityBias: number = 1.0,
+  ): Promise<MCPResponse> {
+    const allMovies = await this.client.getLibraryMoviesWithMeta(libraryKey, userId);
+    const watched = allMovies.filter((m) => m.viewCount > 0);
+    const unwatched = allMovies.filter((m) => m.viewCount === 0);
+
+    if (watched.length < MIN_WATCHED_FOR_RECOMMENDATIONS) {
+      return jsonResponse({
+        success: false,
+        watchedCount: watched.length,
+        message: `Not enough watch history to generate recommendations (watched: ${watched.length}). Watch at least ${MIN_WATCHED_FOR_RECOMMENDATIONS} movies first.`,
+      });
+    }
+
+    if (unwatched.length === 0) {
+      return jsonResponse({
+        success: false,
+        watchedCount: watched.length,
+        message: "You've watched every movie in this library!",
+      });
+    }
+
+    const profile = this.buildTasteProfile(watched);
+
+    const scored = unwatched
+      .map((movie) => this.scoreMovie(movie, profile, qualityBias))
+      .sort((a, b) => b.score - a.score);
+
+    const diverse = this.applyDiversityPenalty(scored, limit);
+
+    const topGenres = [...profile.genreScores.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([g]) => g);
+    const topDirectors = [...profile.directorCounts.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([d]) => d);
+    const topActors = [...profile.actorCounts.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([a]) => a);
+
+    return jsonResponse({
+      success: true,
+      libraryKey,
+      watchedCount: watched.length,
+      unwatchedCount: unwatched.length,
+      userId: userId || "server_owner",
+      tasteProfile: {
+        topGenres,
+        topDirectors,
+        topActors,
+        avgRating: Math.round(profile.weightedAvgRating * 10) / 10,
+      },
+      traktEnhanced: qualityBias !== 1.0,
+      recommendations: diverse.slice(0, limit).map((m) => ({
+        ratingKey: m.ratingKey,
+        title: m.title,
+        year: m.year,
+        genres: m.genres,
+        rating: m.rating,
+        score: parseFloat(m.score.toFixed(3)),
+        reasons: m.reasons,
+      })),
+    });
+  }
+
+  private buildTasteProfile(watched: LibraryMovieRecord[]): TasteProfile {
+    const genreScores = new Map<string, number>();
+    const directorCounts = new Map<string, number>();
+    const actorCounts = new Map<string, number>();
+    const now = Date.now() / 1000;
+    let ratingSum = 0;
+    let ratingWeight = 0;
+    const years: number[] = [];
+
+    for (const movie of watched) {
+      const daysSince = movie.lastViewedAt ? (now - movie.lastViewedAt) / 86400 : 365;
+      const recencyWeight = Math.exp(-Math.LN2 * daysSince / RECENCY_HALF_LIFE_DAYS);
+      const viewWeight = Math.log1p(movie.viewCount);
+      const itemWeight = recencyWeight * viewWeight;
+
+      for (const genre of movie.genres) {
+        genreScores.set(genre, (genreScores.get(genre) || 0) + itemWeight);
+      }
+      for (const director of movie.directors) {
+        directorCounts.set(director, (directorCounts.get(director) || 0) + 1);
+      }
+      for (const actor of movie.actors) {
+        actorCounts.set(actor, (actorCounts.get(actor) || 0) + 1);
+      }
+      if (movie.rating !== undefined) {
+        ratingSum += movie.rating * itemWeight;
+        ratingWeight += itemWeight;
+      }
+      if (movie.year) years.push(movie.year);
+    }
+
+    // Normalize genre scores to 0–1
+    const maxGenre = Math.max(...genreScores.values(), 1);
+    for (const [g, v] of genreScores) genreScores.set(g, v / maxGenre);
+
+    const weightedAvgRating = ratingWeight > 0 ? ratingSum / ratingWeight : 5;
+    const yearMean = years.length > 0 ? years.reduce((a, b) => a + b, 0) / years.length : 2000;
+    const yearStdDev = years.length > 1
+      ? Math.sqrt(years.reduce((sum, y) => sum + (y - yearMean) ** 2, 0) / years.length)
+      : 20;
+
+    return { genreScores, directorCounts, actorCounts, weightedAvgRating, yearMean, yearStdDev };
+  }
+
+  private scoreMovie(
+    movie: LibraryMovieRecord,
+    profile: TasteProfile,
+    qualityBias: number,
+  ): LibraryMovieRecord & { score: number; reasons: string[] } {
+    const reasons: string[] = [];
+
+    // Genre match (0.45)
+    let genreScore = 0;
+    for (const genre of movie.genres) {
+      const gs = profile.genreScores.get(genre) || 0;
+      if (gs > 0.3) reasons.push(`You love ${genre}`);
+      genreScore += gs;
+    }
+    genreScore = Math.min(genreScore / Math.max(movie.genres.length, 1), 1.0);
+
+    // Rating bonus (0.25)
+    const ratingScore = movie.rating !== undefined ? (movie.rating / 10) * qualityBias : 0.5;
+    if (movie.rating !== undefined && movie.rating >= 7) {
+      reasons.push(`Highly rated (${movie.rating}/10)`);
+    }
+
+    // Director match (0.15)
+    let directorScore = 0;
+    for (const director of movie.directors) {
+      const count = profile.directorCounts.get(director) || 0;
+      if (count > 0) {
+        directorScore = Math.min(count / 3, 1.0);
+        reasons.push(`Director: ${director} (watched ${count} films)`);
+        break;
+      }
+    }
+
+    // Actor match (0.10)
+    let actorScore = 0;
+    const topActors = [...profile.actorCounts.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, TASTE_TOP_ACTORS);
+    for (const actor of movie.actors) {
+      const entry = topActors.find(([a]) => a === actor);
+      if (entry) {
+        actorScore = Math.min(entry[1] / 5, 1.0);
+        reasons.push(`Cast: ${actor} (in ${entry[1]} of your watched films)`);
+        break;
+      }
+    }
+
+    // Era match (0.05)
+    let eraScore = 0.5;
+    if (movie.year && profile.yearStdDev > 0) {
+      eraScore = Math.exp(-((movie.year - profile.yearMean) ** 2) / (2 * profile.yearStdDev ** 2));
+    }
+
+    const score =
+      genreScore * 0.45 +
+      ratingScore * 0.25 +
+      directorScore * 0.15 +
+      actorScore * 0.10 +
+      eraScore * 0.05;
+
+    return { ...movie, score, reasons: [...new Set(reasons)].slice(0, 4) };
+  }
+
+  private applyDiversityPenalty(
+    scored: Array<LibraryMovieRecord & { score: number; reasons: string[] }>,
+    limit: number,
+  ): Array<LibraryMovieRecord & { score: number; reasons: string[] }> {
+    const candidates = scored.slice(0, limit * 3);
+    const genreCounts = new Map<string, number>();
+    const result: typeof candidates = [];
+
+    for (const movie of candidates) {
+      const topGenre = movie.genres[0] || "Unknown";
+      const count = genreCounts.get(topGenre) || 0;
+      const penalty = count >= 2 ? 0.15 * (count - 1) : 0;
+      const adjustedScore = movie.score - penalty;
+      genreCounts.set(topGenre, count + 1);
+      result.push({ ...movie, score: adjustedScore });
+    }
+
+    return result.sort((a, b) => b.score - a.score);
   }
 }
