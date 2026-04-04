@@ -103,13 +103,16 @@ export class TraktMCPFunctions {
           vip: user.vip
         },
         tokens: {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
           expires_in: tokens.expires_in,
           scope: tokens.scope,
           created_at: tokens.created_at
         },
-        message: 'Authentication successful! Tokens have been stored.',
+        message: 'Authentication successful! Add these to your environment config to persist across restarts:',
+        env_config: `TRAKT_ACCESS_TOKEN=${tokens.access_token}\nTRAKT_REFRESH_TOKEN=${tokens.refresh_token}`,
         nextSteps: [
-          'Set TRAKT_ACCESS_TOKEN and TRAKT_REFRESH_TOKEN environment variables',
+          'Add the above TRAKT_ACCESS_TOKEN and TRAKT_REFRESH_TOKEN to your MCP client env config or .env file',
           'Use trakt_get_auth_status to verify authentication',
           'Start syncing with trakt_sync_to_trakt'
         ]
