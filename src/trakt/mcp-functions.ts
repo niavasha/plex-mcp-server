@@ -186,6 +186,11 @@ export class TraktMCPFunctions {
 
       const result = await this.syncEngine.performFullSync(syncOptions);
 
+      const maxErrors = 10;
+      const truncatedErrors = result.errors.length > maxErrors
+        ? [...result.errors.slice(0, maxErrors), `... and ${result.errors.length - maxErrors} more errors`]
+        : result.errors;
+
       return {
         success: result.success,
         summary: {
@@ -193,10 +198,11 @@ export class TraktMCPFunctions {
           itemsAdded: result.itemsAdded,
           itemsUpdated: result.itemsUpdated,
           itemsFailed: result.itemsFailed,
+          totalErrors: result.errors.length,
           duration: `${Math.round(result.duration / 1000)}s`
         },
-        conflicts: result.conflicts.length > 0 ? result.conflicts : undefined,
-        errors: result.errors.length > 0 ? result.errors : undefined,
+        conflicts: result.conflicts.length > 0 ? result.conflicts.slice(0, 10) : undefined,
+        errors: truncatedErrors.length > 0 ? truncatedErrors : undefined,
         startTime: result.startTime.toISOString(),
         endTime: result.endTime.toISOString(),
         dryRun: syncOptions.dryRun

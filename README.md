@@ -126,6 +126,24 @@ Once configured, you can ask your AI assistant:
 "Sync my Plex history to Trakt"
 ```
 
+### Recommended Workflows
+
+**Sync Plex watch history to Trakt:**
+1. Set up Trakt credentials (see above)
+2. Ask: *"Authenticate with Trakt"* — follow the OAuth flow
+3. Ask: *"Do a dry run sync of my Plex history to Trakt"* — preview what would sync
+4. Ask: *"Sync my Plex watch history to Trakt"* — run the actual sync
+
+**Find and add new content:**
+1. Ask: *"Search Sonarr for Severance"* — find the TVDB ID
+2. Ask: *"Add Severance to Sonarr"* — it auto-detects quality profiles and root folders
+3. Ask: *"What's in my Sonarr download queue?"* — monitor progress
+
+**Cross-platform viewing analytics:**
+1. Ask: *"Show me my Plex viewing stats for the last 30 days"*
+2. Ask: *"What are my Trakt stats?"* — see lifetime stats (movies watched, hours, milestones)
+3. Ask: *"What are my most popular movies this month?"*
+
 ## Available Functions
 
 ### Plex Tools (18 tools)
