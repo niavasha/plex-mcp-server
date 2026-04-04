@@ -2,7 +2,7 @@
  * Trakt API constants and configuration defaults
  */
 
-export const DEFAULT_TRAKT_API_URL = "https://api-v2launch.trakt.tv";
+export const DEFAULT_TRAKT_API_URL = "https://api.trakt.tv";
 export const TRAKT_OAUTH_URL = "https://api.trakt.tv/oauth/authorize";
 export const TRAKT_API_TIMEOUT = 10000;
 export const TRAKT_INITIAL_RATE_LIMIT_DELAY = 1000;
