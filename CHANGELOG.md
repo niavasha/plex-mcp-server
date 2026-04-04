@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [1.1.0] — 2026-04-04
 
 ### Added
-- **Unified server** (`src/plex-mcp-server.ts`): single entry point exposing all 44 tools (18 Plex + 9 Trakt + 17 Arr). 53 tools with write operations enabled.
+- **Unified server** (`src/plex-mcp-server.ts`): single entry point exposing all 45 tools (19 Plex + 9 Trakt + 17 Arr). 54 tools with write operations enabled.
+- **`get_recommendations`**: personalized movie recommendations based on watch history. Analyzes genres, directors, actors, and ratings to score unwatched films. Supports per-user profiles for multi-user Plex servers. If Trakt is configured, uses your Trakt watched history to catch movies watched outside Plex.
 - Extended analytics tools (`get_fully_watched`, `get_watch_stats`, `get_user_stats`, `get_library_stats`, `get_popular_content`) now available in all server variants — previously these were only in the standalone Plex server.
 - Migration guide (`docs/migration-guide.md`) for users upgrading from v1.0.x.
 - Comprehensive test suite: 94 tests across 8 files covering tool registration, dispatch routing, graceful degradation, and constants validation.
@@ -15,7 +16,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - `npm start` / `npm run dev` now run the unified server instead of the Plex-only server.
 - Minimum Node.js version raised from 18 to 20 (vitest 4.x requires `styleText` from `node:util`).
-- Tool counts: Plex 18, Trakt 9, Arr 17, Write ops 9 = 44 base / 53 total.
+- Tool counts: Plex 19, Trakt 9, Arr 17, Write ops 9 = 45 base / 54 total.
 
 ### Deprecated
 - `build/index.js` (standalone Plex server): use `build/plex-mcp-server.js` instead.

@@ -23,15 +23,17 @@ This MCP server transforms your Plex Media Server into an AI-queryable database.
 - *"Add that new show to Sonarr"*
 - *"What's in my download queue?"*
 - *"Sync my watch history to Trakt"*
+- *"Recommend me some movies I haven't seen"*
 
 ## Features
 
-**44 tools** out of the box (53 with write operations enabled):
+**45 tools** out of the box (54 with write operations enabled):
 
 - **Plex Library Management** — Browse libraries, search media, get detailed metadata, list playlists and watchlist
 - **Tautulli-Style Analytics** — Viewing statistics, user activity, popular content, watch history
+- **Personalized Recommendations** — AI-powered movie suggestions based on your watch history, genres, directors, and actors. Supports per-user profiles for multi-user Plex servers.
 - **Sonarr/Radarr Integration** — Browse, search, add series/movies, view queues, trigger downloads
-- **Trakt.tv Sync** — OAuth authentication, watch history sync, enhanced statistics, scrobbling
+- **Trakt.tv Sync** — OAuth authentication, watch history sync, enhanced statistics, scrobbling. When configured, Trakt data enriches recommendations by catching movies watched outside Plex.
 - **Write Operations** (opt-in) — Create/edit playlists, update metadata, manage watchlist
 
 > **One server, all tools.** Trakt and Sonarr/Radarr credentials are optional — tools that need them return a helpful setup message if the key is missing. You don't need to configure everything upfront.
@@ -139,6 +141,13 @@ Once configured, you can ask your AI assistant:
 2. Ask: *"Add Severance to Sonarr"* — it auto-detects quality profiles and root folders
 3. Ask: *"What's in my Sonarr download queue?"* — monitor progress
 
+**Get personalized recommendations:**
+1. Ask: *"Recommend me some movies from my library"*
+2. The engine analyzes your watch history — genres, directors, actors, ratings
+3. Scores every unwatched movie and returns the top matches with reasons
+4. For multi-user servers, specify the user: *"Recommend movies for Titus"*
+5. If Trakt is configured, it automatically uses your Trakt history too — catching movies you watched outside Plex (other platforms, before tracking was set up)
+
 **Cross-platform viewing analytics:**
 1. Ask: *"Show me my Plex viewing stats for the last 30 days"*
 2. Ask: *"What are my Trakt stats?"* — see lifetime stats (movies watched, hours, milestones)
@@ -146,7 +155,7 @@ Once configured, you can ask your AI assistant:
 
 ## Available Functions
 
-### Plex Tools (18 tools)
+### Plex Tools (19 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -168,6 +177,7 @@ Once configured, you can ask your AI assistant:
 | `get_user_stats` | User activity statistics |
 | `get_library_stats` | Library usage metrics |
 | `get_popular_content` | Most popular content analysis |
+| `get_recommendations` | Personalized movie recommendations based on your watch history |
 
 ### Write Operations (9 tools, opt-in)
 

@@ -1,7 +1,7 @@
 {
   "name": "plex-mcp-server",
   "version": "1.1.0",
-  "description": "Unified MCP server for Plex, Sonarr, Radarr, and Trakt — 44 AI tools for managing your media library (53 with write operations enabled)",
+  "description": "Unified MCP server for Plex, Sonarr, Radarr, and Trakt — 45 AI tools for managing your media library with personalized recommendations (54 with write operations enabled)",
   "type": "module",
   "main": "build/plex-mcp-server.js",
   "bin": {
