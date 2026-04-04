@@ -63,7 +63,7 @@ jobs:
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
-        languages: javascript, actions
+        languages: javascript
         queries: security-extended
     
     - name: Setup Node.js
