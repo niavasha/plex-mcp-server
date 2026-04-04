@@ -1,90 +1,15 @@
 #!/usr/bin/env node
 
-import "dotenv/config";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-} from "@modelcontextprotocol/sdk/types.js";
+// DEPRECATED: Use plex-mcp-server instead (unified server with all tools).
+// This shim exists for backward compatibility and will be removed in v2.0.0.
 
-// Plex shared module
-import {
-  PlexClient,
-  PlexTools,
-  createPlexToolRegistry,
-  PLEX_CORE_TOOL_SCHEMAS,
-  PLEX_MUTATIVE_TOOL_SCHEMAS,
-  DEFAULT_PLEX_URL,
-  isMutativeOpsEnabled,
-} from "./plex/index.js";
-import { startServer } from "./shared/transport.js";
+console.warn(
+  "[plex-mcp-server] The 'plex-trakt-server' binary is deprecated. " +
+  "Use 'plex-mcp-server' instead — it includes all Plex, Trakt, and Sonarr/Radarr tools. " +
+  "See https://github.com/niavasha/plex-mcp-server#migration for details."
+);
 
-// Trakt integration
-import { TraktMCPFunctions } from "./trakt/mcp-functions.js";
-import { TRAKT_TOOL_SCHEMAS } from "./trakt/tool-schemas.js";
-import { createTraktToolRegistry } from "./trakt/tool-registry.js";
-
-class PlexTraktMCPServer {
-  private server: Server;
-
-  constructor() {
-    this.server = new Server(
-      { name: "plex-trakt-server", version: "1.0.0" },
-      { capabilities: { tools: {} } }
-    );
-
-    const plexToken = process.env.PLEX_TOKEN;
-    if (!plexToken) {
-      throw new Error("PLEX_TOKEN environment variable is required");
-    }
-
-    const plexClient = new PlexClient({
-      baseUrl: process.env.PLEX_URL || DEFAULT_PLEX_URL,
-      token: plexToken,
-    });
-
-    const mutativeEnabled = isMutativeOpsEnabled();
-    const plexTools = new PlexTools(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools, { includeMutative: mutativeEnabled });
-    const traktFunctions = new TraktMCPFunctions(plexClient);
-    const traktRegistry = createTraktToolRegistry(traktFunctions);
-
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        ...PLEX_CORE_TOOL_SCHEMAS,
-        ...(mutativeEnabled ? PLEX_MUTATIVE_TOOL_SCHEMAS : []),
-        ...TRAKT_TOOL_SCHEMAS,
-      ],
-    }));
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      const a = (args ?? {}) as Record<string, unknown>;
-
-      try {
-        if (plexRegistry.has(name)) {
-          return await plexRegistry.handle(name, a);
-        }
-        return await traktRegistry.handle(name, a);
-      } catch (error) {
-        if (error instanceof McpError) throw error;
-        const msg = error instanceof Error ? error.message : String(error);
-        throw new McpError(ErrorCode.InternalError, `Error executing ${name}: ${msg}`);
-      }
-    });
-  }
-
-  async run() {
-    await startServer(this.server, "Plex-Trakt MCP server");
-  }
-}
-
-async function main() {
-  const server = new PlexTraktMCPServer();
-  await server.run();
-}
+import { main } from "./plex-mcp-server.js";
 
 main().catch((error) => {
   console.error("Server error:", error);

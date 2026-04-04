@@ -12,7 +12,10 @@ import { PlexMovie, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
 import { validatePlexId } from "../shared/utils.js";
 
 export class PlexClient implements PlexAPIClient {
-  constructor(private config: PlexConfig) {}
+  constructor(private config: PlexConfig) {
+    // Strip trailing slashes to prevent double-slash in URLs
+    this.config = { ...config, baseUrl: config.baseUrl.replace(/\/+$/, "") };
+  }
 
   async makeRequest(endpoint: string, params: Record<string, string | number> = {}, method: string = "GET"): Promise<Record<string, unknown>> {
     const url = `${this.config.baseUrl}${endpoint}`;

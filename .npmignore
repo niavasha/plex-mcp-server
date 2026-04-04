@@ -3,6 +3,7 @@ docs/
 .claude/
 .github/
 .env
+.env.local
 .env.example
 CLAUDE.md
 vitest.config.ts

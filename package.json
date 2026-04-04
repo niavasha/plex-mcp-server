@@ -1,11 +1,11 @@
 {
   "name": "plex-mcp-server",
-  "version": "1.0.5",
-  "description": "MCP server for Plex Media Server with Trakt, Sonarr, and Radarr integration — enables AI assistants to manage your media library",
+  "version": "1.1.0",
+  "description": "Unified MCP server for Plex, Sonarr, Radarr, and Trakt — 44 AI tools for managing your media library (53 with write operations enabled)",
   "type": "module",
-  "main": "build/index.js",
+  "main": "build/plex-mcp-server.js",
   "bin": {
-    "plex-mcp-server": "build/index.js",
+    "plex-mcp-server": "build/plex-mcp-server.js",
     "plex-trakt-server": "build/plex-trakt-server.js",
     "plex-arr-server": "build/plex-arr-server.js"
   },
@@ -23,9 +23,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node build/index.js",
+    "start": "node build/plex-mcp-server.js",
     "start:trakt": "node build/plex-trakt-server.js",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/plex-mcp-server.ts",
     "dev:trakt": "tsx src/plex-trakt-server.ts",
     "start:arr": "node build/plex-arr-server.js",
     "dev:arr": "tsx src/plex-arr-server.ts",

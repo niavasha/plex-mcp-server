@@ -1,74 +1,15 @@
 #!/usr/bin/env node
 
-import "dotenv/config";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-} from "@modelcontextprotocol/sdk/types.js";
-import {
-  PlexClient,
-  PlexTools,
-  createPlexToolRegistry,
-  PLEX_TOOL_SCHEMAS,
-  PLEX_MUTATIVE_TOOL_SCHEMAS,
-  DEFAULT_PLEX_URL,
-  isMutativeOpsEnabled,
-} from "./plex/index.js";
-import { startServer } from "./shared/transport.js";
+// DEPRECATED: Use plex-mcp-server instead (unified server with all tools).
+// This shim exists for backward compatibility and will be removed in v2.0.0.
 
-class PlexMCPServer {
-  private server: Server;
+console.warn(
+  "[plex-mcp-server] The standalone Plex binary is deprecated. " +
+  "Use 'plex-mcp-server' instead — it includes all Plex, Trakt, and Sonarr/Radarr tools. " +
+  "See https://github.com/niavasha/plex-mcp-server#migration for details."
+);
 
-  constructor() {
-    this.server = new Server(
-      { name: "plex-server", version: "0.1.0" },
-      { capabilities: { tools: {} } }
-    );
-
-    const plexToken = process.env.PLEX_TOKEN;
-    if (!plexToken) {
-      throw new Error("PLEX_TOKEN environment variable is required");
-    }
-
-    const client = new PlexClient({
-      baseUrl: process.env.PLEX_URL || DEFAULT_PLEX_URL,
-      token: plexToken,
-    });
-
-    const mutativeEnabled = isMutativeOpsEnabled();
-    const tools = new PlexTools(client);
-    const registry = createPlexToolRegistry(tools, { includeMutative: mutativeEnabled });
-
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: mutativeEnabled
-        ? [...PLEX_TOOL_SCHEMAS, ...PLEX_MUTATIVE_TOOL_SCHEMAS]
-        : PLEX_TOOL_SCHEMAS,
-    }));
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      try {
-        return await registry.handle(name, (args ?? {}) as Record<string, unknown>);
-      } catch (error) {
-        if (error instanceof McpError) throw error;
-        const msg = error instanceof Error ? error.message : String(error);
-        throw new McpError(ErrorCode.InternalError, `Error executing ${name}: ${msg}`);
-      }
-    });
-  }
-
-  async run() {
-    await startServer(this.server, "Plex MCP server");
-  }
-}
-
-async function main() {
-  const server = new PlexMCPServer();
-  await server.run();
-}
+import { main } from "./plex-mcp-server.js";
 
 main().catch((error) => {
   console.error("Server error:", error);

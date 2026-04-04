@@ -1,6 +1,6 @@
 # Plex MCP Server
 
-A **Model Context Protocol (MCP)** server that provides AI assistants with comprehensive access to your Plex Media Server. Query your libraries, get viewing statistics, and manage your media through natural language interactions.
+A **Model Context Protocol (MCP)** server that provides AI assistants with comprehensive access to your Plex Media Server, Sonarr, Radarr, and Trakt.tv — all from a single unified server.
 
 <a href="https://glama.ai/mcp/servers/@niavasha/plex-mcp-server">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@niavasha/plex-mcp-server/badge" alt="Plex Server MCP server" />
@@ -11,7 +11,7 @@ A **Model Context Protocol (MCP)** server that provides AI assistants with compr
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🎬 What is this?
+## What is this?
 
 This MCP server transforms your Plex Media Server into an AI-queryable database. Ask your AI assistant questions like:
 
@@ -20,54 +20,27 @@ This MCP server transforms your Plex Media Server into an AI-queryable database.
 - *"What's the most popular content on my server?"*
 - *"Find action movies in my library"*
 - *"What's on my continue watching list?"*
+- *"Add that new show to Sonarr"*
+- *"What's in my download queue?"*
+- *"Sync my watch history to Trakt"*
 
-## ✨ Features
+## Features
 
-### 📚 **Library Management** (Plex)
-- Browse all Plex libraries
-- List library items with pagination and sorting controls
-- Export full libraries to JSON without truncation
-- Search across movies, TV shows, music, and more
-- Restrict search to a specific library section
-- Get detailed metadata for any media item
+**44 tools** out of the box (53 with write operations enabled):
 
-### 📄 **Read-Only Metadata & Lists** (Plex)
-- Inspect editable fields and current tags for any media item
-- List all playlists and items in a playlist
-- Get Plex watchlist with fallback endpoint support
+- **Plex Library Management** — Browse libraries, search media, get detailed metadata, list playlists and watchlist
+- **Tautulli-Style Analytics** — Viewing statistics, user activity, popular content, watch history
+- **Sonarr/Radarr Integration** — Browse, search, add series/movies, view queues, trigger downloads
+- **Trakt.tv Sync** — OAuth authentication, watch history sync, enhanced statistics, scrobbling
+- **Write Operations** (opt-in) — Create/edit playlists, update metadata, manage watchlist
 
-### 📊 **Tautulli-Style Analytics** (Plex)
-- Comprehensive viewing statistics
-- User activity tracking
-- Popular content analysis
-- Watch history with progress tracking
-- Library usage metrics
+> **One server, all tools.** Trakt and Sonarr/Radarr credentials are optional — tools that need them return a helpful setup message if the key is missing. You don't need to configure everything upfront.
 
-### 🎯 **Smart Querying** (Plex)
-- Recently watched content
-- Fully watched movies/shows
-- Continue watching (On Deck)
-- Recently added media
-
-### 📡 **Sonarr/Radarr Integration** (Plex+Arr Server)
-- Browse and search your Sonarr series and Radarr movie libraries
-- Add new series/movies by TVDB/TMDB ID with auto-detected quality profiles
-- View download queues, missing episodes/movies, and calendar
-- Trigger searches for missing content
-- Check service status for both Sonarr and Radarr
-
-### 🔄 **Trakt.tv Sync** (Plex+Trakt Server)
-- OAuth authentication with Trakt.tv
-- Sync Plex watch history to Trakt
-- Enhanced viewing statistics from Trakt
-- Search the Trakt database
-- Real-time scrobbling support
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- **Node.js** 18+ 
+- **Node.js** 20+
 - **Plex Media Server** (any recent version)
 - **Plex Token** ([How to get your token](#getting-your-plex-token))
 - **MCP-compatible client** (Claude Desktop, etc.)
@@ -86,99 +59,74 @@ npm install
 npm run build
 ```
 
+Or install directly from npm:
+```bash
+npx plex-mcp-server
+```
+
 ### Configuration
 
 1. **Get your Plex token** (see [instructions below](#getting-your-plex-token))
 
-2. **Create environment file:**
-```bash
-# Copy the example environment file
-cp .env.example .env
+2. **Configure your MCP client** (e.g., Claude Desktop):
 
-# Edit with your details
-PLEX_URL=http://localhost:32400
-PLEX_TOKEN=your_plex_token_here
-# Optional: enable mutative Plex tools (disabled by default)
-# PLEX_ENABLE_MUTATIVE_OPS=true
-```
-
-3. **Configure your MCP client:**
-
-Add to your MCP client configuration (e.g., Claude Desktop).
-
-**Plex only** (18 tools):
 ```json
 {
   "mcpServers": {
     "plex": {
       "command": "node",
-      "args": ["/path/to/plex-mcp-server/build/index.js"],
+      "args": ["/path/to/plex-mcp-server/build/plex-mcp-server.js"],
       "env": {
         "PLEX_URL": "http://localhost:32400",
         "PLEX_TOKEN": "your_plex_token_here",
-        "PLEX_ENABLE_MUTATIVE_OPS": "true"
-      }
-    }
-  }
-}
-```
 
-**Plex + Sonarr/Radarr** (30 tools):
-```json
-{
-  "mcpServers": {
-    "plex-arr": {
-      "command": "node",
-      "args": ["/path/to/plex-mcp-server/build/plex-arr-server.js"],
-      "env": {
-        "PLEX_URL": "http://localhost:32400",
-        "PLEX_TOKEN": "your_plex_token_here",
         "SONARR_URL": "http://localhost:8989",
-        "SONARR_API_KEY": "your_sonarr_api_key",
+        "SONARR_API_KEY": "optional_sonarr_api_key",
+
         "RADARR_URL": "http://localhost:7878",
-        "RADARR_API_KEY": "your_radarr_api_key"
+        "RADARR_API_KEY": "optional_radarr_api_key",
+
+        "TRAKT_CLIENT_ID": "optional_trakt_client_id",
+        "TRAKT_CLIENT_SECRET": "optional_trakt_client_secret"
       }
     }
   }
 }
 ```
 
-**Plex + Trakt.tv** (22 tools):
-```json
-{
-  "mcpServers": {
-    "plex-trakt": {
-      "command": "node",
-      "args": ["/path/to/plex-mcp-server/build/plex-trakt-server.js"],
-      "env": {
-        "PLEX_URL": "http://localhost:32400",
-        "PLEX_TOKEN": "your_plex_token_here",
-        "TRAKT_CLIENT_ID": "your_trakt_client_id",
-        "TRAKT_CLIENT_SECRET": "your_trakt_client_secret"
-      }
-    }
-  }
-}
-```
+> **Only `PLEX_TOKEN` is required.** All other credentials are optional — tools for unconfigured services return a clear error message explaining how to set them up, rather than crashing the server.
 
-> **Note:** Sonarr/Radarr API keys are optional at startup — tools that need them will return a helpful error message if the key is missing. Find your API keys at **Settings > General > API Key** in each app's web UI.
+> **Sonarr/Radarr API keys** can be found at **Settings > General > API Key** in each app's web UI.
+
+<details>
+<summary><strong>Migrating from v1.0.x?</strong></summary>
+
+In v1.0.x there were three separate server binaries (`build/index.js`, `build/plex-trakt-server.js`, `build/plex-arr-server.js`). In v1.1.0+ these are replaced by a single unified binary: `build/plex-mcp-server.js`.
+
+The old binaries still work but emit a deprecation warning. Update your MCP config to point to `build/plex-mcp-server.js` and remove any duplicate server entries.
+
+See the [migration guide](docs/migration-guide.md) for full details.
+</details>
 
 ### Usage
 
 Once configured, you can ask your AI assistant:
 
 ```
-🎬 "What movies did I watch last week?"
-📺 "Show me my most popular TV shows this month"
-📊 "Give me viewing statistics for the past 30 days"
-🔍 "Search for Christopher Nolan movies in my library"
-▶️ "What's on my continue watching list?"
-📚 "List all my Plex libraries"
+"What movies did I watch last week?"
+"Show me my most popular TV shows this month"
+"Give me viewing statistics for the past 30 days"
+"Search for Christopher Nolan movies in my library"
+"What's on my continue watching list?"
+"List all my Plex libraries"
+"Add The Bear to Sonarr"
+"What's in my Radarr download queue?"
+"Sync my Plex history to Trakt"
 ```
 
-## 🛠️ Available Functions
+## Available Functions
 
-### Plex Tools (all servers)
+### Plex Tools (18 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -195,10 +143,15 @@ Once configured, you can ask your AI assistant:
 | `get_watchlist` | Get current Plex watchlist |
 | `get_recently_watched` | Recently watched content |
 | `get_watch_history` | Detailed watch sessions |
+| `get_fully_watched` | Fully watched movies/shows |
+| `get_watch_stats` | Comprehensive viewing statistics |
+| `get_user_stats` | User activity statistics |
+| `get_library_stats` | Library usage metrics |
+| `get_popular_content` | Most popular content analysis |
 
-The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`, `get_user_stats`, `get_library_stats`, `get_popular_content`.
+### Write Operations (9 tools, opt-in)
 
-### Mutative Plex Tools (`PLEX_ENABLE_MUTATIVE_OPS=true`)
+Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI assistant to make changes to your Plex server. **Use with care** — while we test these tools, there are no guarantees. Review changes your assistant proposes before confirming.
 
 | Function | Description |
 |----------|-------------|
@@ -212,7 +165,7 @@ The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`
 | `add_to_watchlist` | Add a media item to the Plex watchlist |
 | `remove_from_watchlist` | Remove a media item from the Plex watchlist |
 
-### Sonarr Tools (plex-arr-server)
+### Sonarr Tools (8 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -225,7 +178,7 @@ The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`
 | `sonarr_get_profiles` | Quality profiles and root folders |
 | `sonarr_trigger_search` | Trigger missing episode search |
 
-### Radarr Tools (plex-arr-server)
+### Radarr Tools (8 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -238,13 +191,13 @@ The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`
 | `radarr_get_profiles` | Quality profiles and root folders |
 | `radarr_trigger_search` | Trigger missing movie search |
 
-### Cross-Service Tools (plex-arr-server)
+### Cross-Service Tools (1 tool)
 
 | Function | Description |
 |----------|-------------|
 | `arr_get_status` | Check Sonarr/Radarr connection status |
 
-### Trakt Tools (plex-trakt-server)
+### Trakt Tools (9 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -258,10 +211,10 @@ The standalone Plex server also includes: `get_fully_watched`, `get_watch_stats`
 | `trakt_start_scrobbling` | Real-time scrobbling |
 | `trakt_get_sync_status` | Check sync operation status |
 
-## 🔑 Getting Your Plex Token
+## Getting Your Plex Token
 
 1. **Open Plex Web App** in your browser
-2. **Navigate to Settings** → Account → Privacy
+2. **Navigate to Settings** > Account > Privacy
 3. **Click "Show Advanced"** at the bottom
 4. **Copy your Plex Token**
 
@@ -269,14 +222,15 @@ Alternative method:
 - Visit: `http://YOUR_PLEX_IP:32400/web/index.html#!/settings/account`
 - Look for the "Plex Token" field
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 plex-mcp-server/
 ├── src/
-│   ├── index.ts               # Standalone Plex server (18 tools)
-│   ├── plex-arr-server.ts     # Plex + Sonarr/Radarr server (30 tools)
-│   ├── plex-trakt-server.ts   # Plex + Trakt server (22 tools)
+│   ├── plex-mcp-server.ts    # Unified server entry point (44+ tools)
+│   ├── index.ts               # Deprecated shim → plex-mcp-server
+│   ├── plex-arr-server.ts     # Deprecated shim → plex-mcp-server
+│   ├── plex-trakt-server.ts   # Deprecated shim → plex-mcp-server
 │   ├── plex/                  # Shared Plex module
 │   │   ├── client.ts          #   Plex API client
 │   │   ├── tools.ts           #   Plex tool implementations
@@ -298,47 +252,47 @@ plex-mcp-server/
 │   │   ├── mcp-functions.ts   #   Tool implementations (9 tools)
 │   │   ├── tool-registry.ts   #   Map-based tool dispatch
 │   │   └── tool-schemas.ts    #   MCP tool schema definitions
-│   └── shared/                # Shared utilities
-│       └── utils.ts           #   truncate, sleep, chunkArray
+│   ├── shared/                # Shared utilities
+│   │   └── utils.ts           #   truncate, sleep, chunkArray
+│   └── __tests__/             # Test suite (94 tests)
 ├── build/                     # Compiled JavaScript output
+├── docs/                      # Documentation
 ├── package.json
 ├── tsconfig.json
+├── vitest.config.ts
 ├── .env.example               # Environment variables template
 └── README.md
 ```
 
-## 🔧 Development
+## Development
 
 ### Scripts
 
 ```bash
 # Development mode with auto-reload
-npm run dev            # Plex only
-npm run dev:arr        # Plex + Sonarr/Radarr
-npm run dev:trakt      # Plex + Trakt
+npm run dev
 
 # Build for production
 npm run build
 
 # Start production server
-npm start              # Plex only
-npm start:arr          # Plex + Sonarr/Radarr
-npm start:trakt        # Plex + Trakt
+npm start
+
+# Run tests
+npm test
+npm run test:watch
 ```
 
 ### Building from Source
 
 ```bash
-# Clone and setup
 git clone https://github.com/niavasha/plex-mcp-server.git
 cd plex-mcp-server
 npm install
-
-# Development
 npm run dev
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
@@ -350,13 +304,13 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 4. **Push to the branch** (`git push origin feature/amazing-feature`)
 5. **Open a Pull Request**
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
 **Connection refused:**
 - Verify your Plex server is running
-- Check the `PLEX_URL` in your `.env` file
+- Check the `PLEX_URL` in your environment config
 - Ensure the port (usually 32400) is correct
 
 **Authentication errors:**
@@ -375,43 +329,49 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 - Sonarr uses API v3 at `/api/v3/` — ensure your URL doesn't include a trailing path
 - For large Radarr libraries (20k+ movies), the initial `radarr_get_movies` call may take up to 30 seconds
 
+**Trakt authentication issues:**
+- Ensure `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` are both set
+- Use the `trakt_authenticate` tool to start the OAuth flow
+- Complete authentication with `trakt_complete_auth` using the code from Trakt
+
 **MCP client issues:**
-- Ensure the path to the correct server JS file is set (`build/index.js`, `build/plex-arr-server.js`, or `build/plex-trakt-server.js`)
+- Ensure the path is set to `build/plex-mcp-server.js` (the unified server)
 - Check that Node.js is in your system PATH
 - Verify environment variables are set in client config
 
 ### Getting Help
 
-- 📝 [Open an issue](https://github.com/niavasha/plex-mcp-server/issues)
-- 💬 Check existing [discussions](https://github.com/niavasha/plex-mcp-server/discussions)
-- 📖 Review the [MCP documentation](https://modelcontextprotocol.io/)
+- [Open an issue](https://github.com/niavasha/plex-mcp-server/issues)
+- Check existing [discussions](https://github.com/niavasha/plex-mcp-server/discussions)
+- Review the [MCP documentation](https://modelcontextprotocol.io/)
 
-## 📋 Requirements
+## Requirements
 
-- **Node.js** 18.0.0 or higher
+- **Node.js** 20.0.0 or higher
 - **Plex Media Server** (any recent version)
 - **Network access** between MCP server and Plex server
 - **Valid Plex token** with appropriate permissions
 
-## 🔒 Security Notes
+## Security Notes
 
 - **Keep your Plex token secure** - never commit it to version control
 - **Use environment variables** for sensitive configuration
 - **Run on trusted networks** - the server communicates directly with Plex
 - **Regular token rotation** - consider refreshing tokens periodically
+- **Write operations** are disabled by default — enable only if you trust your AI assistant's judgment
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Anthropic](https://anthropic.com/) for the Model Context Protocol
 - [Plex](https://www.plex.tv/) for the amazing media server
 - [Tautulli](https://tautulli.com/) for analytics inspiration
 - The open-source community for various libraries and tools
 
-## 🔗 Related Projects
+## Related Projects
 
 - [Model Context Protocol](https://modelcontextprotocol.io/) - The standard this server implements
 - [Claude Desktop](https://claude.ai/) - Popular MCP client
@@ -420,4 +380,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with ❤️ for the Plex and AI community**
+**Built with love for the Plex and AI community**

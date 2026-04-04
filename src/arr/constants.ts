@@ -5,8 +5,8 @@
 export const DEFAULT_SONARR_URL = "http://localhost:8989";
 export const DEFAULT_RADARR_URL = "http://localhost:7878";
 
-export const ARR_API_TIMEOUT = 15000;
-export const ARR_LARGE_REQUEST_TIMEOUT = 30000;
+export const ARR_API_TIMEOUT = 30000;
+export const ARR_LARGE_REQUEST_TIMEOUT = 60000;
 export const ARR_DEFAULT_PAGE_SIZE = 200;
 export const ARR_PREVIEW_LIMIT = 200;
 

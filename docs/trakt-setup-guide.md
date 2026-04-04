@@ -1,12 +1,14 @@
 # Trakt.tv Integration Setup Guide
 
+> **Note (v1.1.0+):** Trakt tools are now included in the unified `plex-mcp-server` binary. The separate `plex-trakt-server` binary is deprecated. See the [migration guide](./migration-guide.md).
+
 This guide walks you through setting up Trakt.tv integration with your Plex MCP Server, enabling advanced analytics, cross-platform sync, and enhanced recommendations.
 
 ## Prerequisites
 
 1. **Plex Media Server** - Working Plex MCP Server
 2. **Trakt.tv Account** - Free account at [trakt.tv](https://trakt.tv)
-3. **Node.js 18+** - Required for running the server
+3. **Node.js 20+** - Required for running the server
 
 ## Step 1: Create Trakt OAuth Application
 
@@ -42,17 +44,17 @@ This guide walks you through setting up Trakt.tv integration with your Plex MCP 
    TRAKT_REDIRECT_URI=urn:ietf:wg:oauth:2.0:oob
    ```
 
-## Step 3: Start the Trakt-Enabled Server
+## Step 3: Start the Server
 
-Use the Trakt-enabled version of the MCP server:
+Trakt tools are included in the unified server:
 
 ```bash
 # Development mode
-npm run dev:trakt
+npm run dev
 
 # Production mode
 npm run build
-npm run start:trakt
+npm start
 ```
 
 ## Step 4: Authenticate with Trakt
@@ -203,9 +205,9 @@ Add to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "plex-trakt": {
+    "plex": {
       "command": "node",
-      "args": ["/path/to/plex-mcp-server/build/plex-trakt-server.js"],
+      "args": ["/path/to/plex-mcp-server/build/plex-mcp-server.js"],
       "env": {
         "PLEX_URL": "http://localhost:32400",
         "PLEX_TOKEN": "your_plex_token",
@@ -246,7 +248,7 @@ Add to your Claude Desktop configuration:
 Enable debug logging:
 
 ```bash
-DEBUG=true npm run dev:trakt
+DEBUG=true npm run dev
 ```
 
 ### Support
@@ -272,5 +274,5 @@ Once sync is working:
 
 ---
 
-*Last Updated: 2025-09-08*  
-*Version: 1.0.0*
+*Last Updated: 2026-04-04*  
+*Version: 1.1.0*

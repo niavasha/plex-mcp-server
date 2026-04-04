@@ -29,12 +29,33 @@ import {
   ARR_CALENDAR_DAYS_FUTURE,
 } from "./constants.js";
 
+/**
+ * Sonarr v4 / Radarr v5 may wrap list endpoints in { records: [...] } or similar.
+ * This extracts the array regardless of shape.
+ */
+function ensureArray<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    // Try common wrapper keys: records, items, data
+    for (const key of ["records", "items", "data"]) {
+      if (Array.isArray(obj[key])) return obj[key] as T[];
+    }
+    // Last resort: find the first array property
+    for (const value of Object.values(obj)) {
+      if (Array.isArray(value)) return value as T[];
+    }
+  }
+  throw new Error(`Expected array from API but got ${typeof data}`);
+}
+
 class ArrClient {
   protected http: AxiosInstance;
 
   constructor(protected config: ArrConfig, protected serviceName: string) {
+    const baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.http = axios.create({
-      baseURL: `${config.baseUrl}/api/v3`,
+      baseURL: `${baseUrl}/api/v3`,
       timeout: ARR_API_TIMEOUT,
       headers: { "X-Api-Key": config.apiKey },
     });
@@ -98,8 +119,8 @@ export class SonarrClient extends ArrClient {
   }
 
   async getSeries(): Promise<SonarrSeries[]> {
-    const { data } = await this.http.get<SonarrSeries[]>("/series");
-    return data;
+    const { data } = await this.http.get("/series");
+    return ensureArray(data);
   }
 
   async getSeriesById(id: number): Promise<SonarrSeries> {
@@ -108,10 +129,10 @@ export class SonarrClient extends ArrClient {
   }
 
   async searchSeries(query: string): Promise<SonarrSearchResult[]> {
-    const { data } = await this.http.get<SonarrSearchResult[]>("/series/lookup", {
+    const { data } = await this.http.get("/series/lookup", {
       params: { term: query },
     });
-    return data;
+    return ensureArray(data);
   }
 
   async addSeries(request: SonarrAddSeriesRequest): Promise<SonarrSeries> {
@@ -129,10 +150,10 @@ export class SonarrClient extends ArrClient {
   async getCalendar(startDate?: string, endDate?: string): Promise<SonarrCalendarEntry[]> {
     const start = startDate || new Date(Date.now() - ARR_CALENDAR_DAYS_PAST * 86400000).toISOString().split("T")[0];
     const end = endDate || new Date(Date.now() + ARR_CALENDAR_DAYS_FUTURE * 86400000).toISOString().split("T")[0];
-    const { data } = await this.http.get<SonarrCalendarEntry[]>("/calendar", {
+    const { data } = await this.http.get("/calendar", {
       params: { start, end, unmonitored: false, includeSeries: true },
     });
-    return data;
+    return ensureArray(data);
   }
 
   async triggerSeriesSearch(seriesId: number): Promise<{ id: number }> {
@@ -157,10 +178,10 @@ export class RadarrClient extends ArrClient {
   }
 
   async getMovies(): Promise<RadarrMovie[]> {
-    const { data } = await this.http.get<RadarrMovie[]>("/movie", {
+    const { data } = await this.http.get("/movie", {
       timeout: ARR_LARGE_REQUEST_TIMEOUT,
     });
-    return data;
+    return ensureArray(data);
   }
 
   async getMovieById(id: number): Promise<RadarrMovie> {
@@ -169,10 +190,10 @@ export class RadarrClient extends ArrClient {
   }
 
   async searchMovies(query: string): Promise<RadarrSearchResult[]> {
-    const { data } = await this.http.get<RadarrSearchResult[]>("/movie/lookup", {
+    const { data } = await this.http.get("/movie/lookup", {
       params: { term: query },
     });
-    return data;
+    return ensureArray(data);
   }
 
   async addMovie(request: RadarrAddMovieRequest): Promise<RadarrMovie> {
@@ -190,10 +211,10 @@ export class RadarrClient extends ArrClient {
   async getCalendar(startDate?: string, endDate?: string): Promise<RadarrCalendarEntry[]> {
     const start = startDate || new Date(Date.now() - ARR_CALENDAR_DAYS_PAST * 86400000).toISOString().split("T")[0];
     const end = endDate || new Date(Date.now() + ARR_CALENDAR_DAYS_FUTURE * 86400000).toISOString().split("T")[0];
-    const { data } = await this.http.get<RadarrCalendarEntry[]>("/calendar", {
+    const { data } = await this.http.get("/calendar", {
       params: { start, end, unmonitored: false },
     });
-    return data;
+    return ensureArray(data);
   }
 
   async triggerMovieSearch(movieId: number): Promise<{ id: number }> {

@@ -1,90 +1,15 @@
 #!/usr/bin/env node
 
-import "dotenv/config";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-} from "@modelcontextprotocol/sdk/types.js";
+// DEPRECATED: Use plex-mcp-server instead (unified server with all tools).
+// This shim exists for backward compatibility and will be removed in v2.0.0.
 
-// Plex shared module
-import {
-  PlexClient,
-  PlexTools,
-  createPlexToolRegistry,
-  PLEX_CORE_TOOL_SCHEMAS,
-  PLEX_MUTATIVE_TOOL_SCHEMAS,
-  DEFAULT_PLEX_URL,
-  isMutativeOpsEnabled,
-} from "./plex/index.js";
-import { startServer } from "./shared/transport.js";
+console.warn(
+  "[plex-mcp-server] The 'plex-arr-server' binary is deprecated. " +
+  "Use 'plex-mcp-server' instead — it includes all Plex, Trakt, and Sonarr/Radarr tools. " +
+  "See https://github.com/niavasha/plex-mcp-server#migration for details."
+);
 
-// Arr integration
-import { ArrMCPFunctions } from "./arr/mcp-functions.js";
-import { ARR_TOOL_SCHEMAS } from "./arr/tool-schemas.js";
-import { createArrToolRegistry } from "./arr/tool-registry.js";
-
-class PlexArrMCPServer {
-  private server: Server;
-
-  constructor() {
-    this.server = new Server(
-      { name: "plex-arr-server", version: "1.0.0" },
-      { capabilities: { tools: {} } }
-    );
-
-    const plexToken = process.env.PLEX_TOKEN;
-    if (!plexToken) {
-      throw new Error("PLEX_TOKEN environment variable is required");
-    }
-
-    const plexClient = new PlexClient({
-      baseUrl: process.env.PLEX_URL || DEFAULT_PLEX_URL,
-      token: plexToken,
-    });
-
-    const mutativeEnabled = isMutativeOpsEnabled();
-    const plexTools = new PlexTools(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools, { includeMutative: mutativeEnabled });
-    const arrFunctions = new ArrMCPFunctions();
-    const arrRegistry = createArrToolRegistry(arrFunctions);
-
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        ...PLEX_CORE_TOOL_SCHEMAS,
-        ...(mutativeEnabled ? PLEX_MUTATIVE_TOOL_SCHEMAS : []),
-        ...ARR_TOOL_SCHEMAS,
-      ],
-    }));
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      const a = (args ?? {}) as Record<string, unknown>;
-
-      try {
-        if (plexRegistry.has(name)) {
-          return await plexRegistry.handle(name, a);
-        }
-        return await arrRegistry.handle(name, a);
-      } catch (error) {
-        if (error instanceof McpError) throw error;
-        const msg = error instanceof Error ? error.message : String(error);
-        throw new McpError(ErrorCode.InternalError, `Error executing ${name}: ${msg}`);
-      }
-    });
-  }
-
-  async run() {
-    await startServer(this.server, "Plex-Arr MCP server");
-  }
-}
-
-async function main() {
-  const server = new PlexArrMCPServer();
-  await server.run();
-}
+import { main } from "./plex-mcp-server.js";
 
 main().catch((error) => {
   console.error("Server error:", error);
