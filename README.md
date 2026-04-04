@@ -120,7 +120,7 @@ Once configured, you can ask your AI assistant:
 "What movies did I watch last week?"
 "Show me my most popular TV shows this month"
 "Give me viewing statistics for the past 30 days"
-"Search for Christopher Nolan movies in my library"
+"Search for Night of the Living Dead in my library"
 "What's on my continue watching list?"
 "List all my Plex libraries"
 "Add that new show to Sonarr"
