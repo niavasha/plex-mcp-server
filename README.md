@@ -137,8 +137,8 @@ Once configured, you can ask your AI assistant:
 4. Ask: *"Sync my Plex watch history to Trakt"* — run the actual sync
 
 **Find and add new content:**
-1. Ask: *"Search Sonarr for a show"* — find the TVDB ID
-2. Ask: *"Add it to Sonarr"* — it auto-detects quality profiles and root folders
+1. Ask: *"Search Sonarr for The Beverly Hillbillies"* — find the TVDB ID
+2. Ask: *"Add The Beverly Hillbillies to Sonarr"* — it auto-detects quality profiles and root folders
 3. Ask: *"What's in my Sonarr download queue?"* — monitor progress
 
 **Get personalized recommendations:**
