@@ -319,7 +319,10 @@ const UPDATE_METADATA_FROM_JSON_SCHEMA = {
 
 const CREATE_PLAYLIST_SCHEMA = {
   name: "create_playlist",
-  description: "Create a new Plex playlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  description:
+    "Create a new Plex playlist (requires PLEX_ENABLE_MUTATIVE_OPS=true). " +
+    "For regular playlists, ratingKeys is required — Plex does not support creating empty playlists. " +
+    "For smart playlists, set smart=true and provide librarySectionId (and optionally libtype / smartFilter).",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -329,8 +332,37 @@ const CREATE_PLAYLIST_SCHEMA = {
         description: "Playlist type (video, audio, photo) or media type (movie, show, episode, artist, album, track)",
         enum: ["video", "audio", "photo", "movie", "show", "episode", "artist", "album", "track"],
       },
-      ratingKeys: { type: "array", description: "Optional list of rating keys", items: { type: "string" } },
-      smart: { type: "boolean", description: "Create smart playlist (default: false)", default: false },
+      ratingKeys: {
+        type: "array",
+        description:
+          "Rating keys to seed the playlist with. REQUIRED for non-smart playlists (>=1). " +
+          "All items are sent in a single POST, comma-joined in the playlist URI. " +
+          "Mutually exclusive with smart=true.",
+        items: { type: "string" },
+      },
+      smart: {
+        type: "boolean",
+        description: "Create a smart playlist filtered from a library section (default: false)",
+        default: false,
+      },
+      librarySectionId: {
+        type: "string",
+        description:
+          "Smart playlists only: library section ID to filter (e.g. '1'). REQUIRED when smart=true.",
+      },
+      libtype: {
+        type: "string",
+        description:
+          "Smart playlists only: content type to filter for. Defaults based on playlist type " +
+          "(audio->track, video->movie, photo->photo).",
+        enum: ["movie", "show", "season", "episode", "artist", "album", "track", "photo", "photoalbum"],
+      },
+      smartFilter: {
+        type: "string",
+        description:
+          "Smart playlists only: raw Plex filter query string, e.g. " +
+          "'genre=Drama&year>=2020&sort=titleSort:asc&limit=100'. Appended to the section URI.",
+      },
     },
     required: ["title", "type"],
   },

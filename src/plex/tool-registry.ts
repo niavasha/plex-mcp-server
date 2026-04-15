@@ -212,12 +212,13 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     );
 
     registry.register("create_playlist", (args) =>
-      tools.createPlaylist(
-        args.title as string,
-        args.type as string,
-        args.ratingKeys as string[] | undefined,
-        args.smart as boolean | undefined
-      )
+      tools.createPlaylist(args.title as string, args.type as string, {
+        ratingKeys: args.ratingKeys as string[] | undefined,
+        smart: args.smart as boolean | undefined,
+        librarySectionId: args.librarySectionId as string | undefined,
+        libtype: args.libtype as string | undefined,
+        smartFilter: args.smartFilter as string | undefined,
+      })
     );
 
     registry.register("add_to_playlist", (args) =>

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] — 2026-04-15
+
+### Fixed
+- **`create_playlist` returned 400 error** ([#48](https://github.com/niavasha/plex-mcp-server/issues/48)). Calling `create_playlist` without `ratingKeys` silently flipped `smart` to `true` and POSTed `/playlists` with no `uri` parameter — which Plex rejects. The tool now validates inputs up front and rejects invalid combinations with a clear `InvalidRequest` error instead of passing them through to Plex. Verified against the `python-plexapi` reference implementation, which itself raises `BadRequest` when no items are provided.
+- **Multi-item playlist creation is now a single round-trip.** Previously, a playlist with N items resulted in one `/playlists` POST (seeding only the first item) plus N-1 follow-up `addToPlaylist` calls. The tool now comma-joins all rating keys into the initial `uri` parameter — matching `python-plexapi` — so an N-item playlist is created in exactly one POST.
+
+### Added
+- **Smart playlist support in `create_playlist`**. Pass `smart: true` with `librarySectionId` (required) and optionally `libtype` / `smartFilter` to create a smart playlist. The tool constructs the correct `/library/sections/{id}/all` search URI. The `smartFilter` parameter accepts a raw Plex filter query string (e.g. `genre=Drama&year>=2020&sort=titleSort:asc&limit=100`).
+- `SMART_PLAYLIST_LIBTYPE_IDS` constant mapping libtypes (`movie`/`show`/`season`/`episode`/`artist`/`album`/`track`/`photo`/`photoalbum`) to their numeric IDs used inside smart playlist search URIs.
+- 9 new tests covering `create_playlist` validation, URI construction, comma-joining, smart playlist modes, and mutual-exclusivity guards. Test suite: 105 tests across 8 files (was 94).
+
+### Security
+- **Bumped `follow-redirects` 1.15.11 → 1.16.0** ([GHSA-r4q5-vmmm-2653](https://github.com/advisories/GHSA-r4q5-vmmm-2653)). Moderate severity advisory — `follow-redirects` leaks custom Authorization headers to cross-domain redirect targets. Transitive dependency via `axios@1.15.0`. `npm audit` now reports 0 vulnerabilities. Clears the scheduled Security Scans workflow on `main`.
+
+### Breaking
+- `create_playlist` now **requires** `ratingKeys` (≥1) for non-smart playlists. Previously, calling it without rating keys silently flipped to (broken) smart mode; that path was never functional, so no caller can be relying on the old behaviour.
+- Internal `PlexTools.createPlaylist` signature changed from positional `(title, type, ratingKeys?, smart?)` to an options object: `(title, type, { ratingKeys?, smart?, librarySectionId?, libtype?, smartFilter? })`. Only affects direct library consumers — the MCP tool schema is fully additive and backwards compatible for existing JSON-RPC callers that pass `ratingKeys`.
+
 ## [1.1.0] — 2026-04-04
 
 ### Added
