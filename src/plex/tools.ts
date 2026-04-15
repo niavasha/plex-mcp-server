@@ -21,6 +21,7 @@ import {
   TASTE_TOP_DIRECTORS,
   TASTE_TOP_ACTORS,
   MIN_WATCHED_FOR_RECOMMENDATIONS,
+  SMART_PLAYLIST_LIBTYPE_IDS,
 } from "./constants.js";
 import { truncate, validatePlexId } from "../shared/utils.js";
 
@@ -641,8 +642,13 @@ export class PlexTools {
   async createPlaylist(
     title: string,
     type: string,
-    ratingKeys?: string[],
-    smart?: boolean
+    options: {
+      ratingKeys?: string[];
+      smart?: boolean;
+      librarySectionId?: string;
+      libtype?: string;
+      smartFilter?: string;
+    } = {}
   ): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("create_playlist");
     if (!title) {
@@ -652,39 +658,71 @@ export class PlexTools {
       throw new McpError(ErrorCode.InvalidRequest, "type is required");
     }
 
+    const { ratingKeys, smart, librarySectionId, libtype, smartFilter } = options;
+    const isSmart = smart === true;
+
+    // Reject mixing modes — Plex treats these as distinct creation paths.
+    if (isSmart && ratingKeys && ratingKeys.length > 0) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "smart and ratingKeys are mutually exclusive; cannot specify both when creating a playlist"
+      );
+    }
+
     const playlistType = this.getPlaylistType(type);
-    const createSmart = smart === true || !ratingKeys || ratingKeys.length === 0;
+    const machineIdentifier = await this.getMachineIdentifier();
+    const uriRoot = `server://${machineIdentifier}/com.plexapp.plugins.library`;
+
+    let uri: string;
+    if (isSmart) {
+      // Smart playlist — requires a library section to filter against.
+      // Plex does not support creating a smart playlist without a section URI.
+      if (!librarySectionId) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "librarySectionId is required when smart=true; smart playlists filter a library section"
+        );
+      }
+
+      const resolvedLibtype = libtype ?? this.defaultLibtypeFor(playlistType);
+      const libtypeId = SMART_PLAYLIST_LIBTYPE_IDS[resolvedLibtype];
+      if (libtypeId === undefined) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Unknown libtype "${resolvedLibtype}". Valid values: ${Object.keys(SMART_PLAYLIST_LIBTYPE_IDS).join(", ")}`
+        );
+      }
+
+      const filterSuffix = smartFilter ? `&${smartFilter.replace(/^&/, "")}` : "";
+      uri = `${uriRoot}/library/sections/${librarySectionId}/all?type=${libtypeId}${filterSuffix}`;
+    } else {
+      // Regular playlist — must be seeded with at least one existing library item.
+      // Plex API rejects playlist creation with no uri parameter (issue #48).
+      if (!ratingKeys || ratingKeys.length === 0) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "ratingKeys is required (at least one item) to create a playlist; Plex does not support creating empty playlists via this endpoint"
+        );
+      }
+      // python-plexapi comma-joins all rating keys in a single POST, seeding
+      // the playlist fully without follow-up addToPlaylist calls.
+      uri = `${uriRoot}/library/metadata/${ratingKeys.join(",")}`;
+    }
+
     const params: Record<string, string | number> = {
       title,
       type: playlistType,
-      smart: createSmart ? 1 : 0,
+      smart: isSmart ? 1 : 0,
+      uri,
     };
-
-    if (!createSmart && ratingKeys && ratingKeys.length > 0) {
-      const machineIdentifier = await this.getMachineIdentifier();
-      params.uri = `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys[0]}`;
-    }
 
     const data = await this.client.makeRequest("/playlists", params, "POST");
     const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
     const playlist = container.MediaContainer?.Metadata?.[0];
-    const playlistId = playlist?.ratingKey as string | undefined;
-
-    const addResults: Array<{ ratingKey: string; added: boolean; error?: string }> = [];
-    if (!createSmart && ratingKeys && ratingKeys.length > 1 && playlistId) {
-      for (const ratingKey of ratingKeys.slice(1)) {
-        try {
-          await this.addToPlaylist(playlistId, ratingKey);
-          addResults.push({ ratingKey, added: true });
-        } catch (error) {
-          addResults.push({ ratingKey, added: false, error: this.getErrorMessage(error) });
-        }
-      }
-    }
 
     return jsonResponse({
       created: true,
-      smart: createSmart,
+      smart: isSmart,
       playlist: playlist
         ? {
             ratingKey: playlist.ratingKey,
@@ -697,9 +735,8 @@ export class PlexTools {
         : {
             title,
             type: playlistType,
-            leafCount: ratingKeys?.length || 0,
+            leafCount: isSmart ? undefined : ratingKeys?.length,
           },
-      addResults: addResults.length > 0 ? addResults : undefined,
     });
   }
 
@@ -1434,6 +1471,16 @@ export class PlexTools {
       track: "audio",
     };
     return map[type] || "video";
+  }
+
+  /**
+   * Default libtype for a smart playlist when the caller didn't specify one.
+   * Maps the outer playlist type to a sensible leaf content type.
+   */
+  private defaultLibtypeFor(playlistType: "video" | "audio" | "photo"): string {
+    if (playlistType === "audio") return "track";
+    if (playlistType === "photo") return "photo";
+    return "movie";
   }
 
   private async getRecentlyWatchedFromLibraries(limit: number, mediaType: string): Promise<MCPResponse> {
