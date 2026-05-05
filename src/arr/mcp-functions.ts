@@ -704,8 +704,28 @@ export class ArrMCPFunctions {
 
     const [sonarr, radarr] = await Promise.allSettled([sonarrResult, radarrResult]);
 
-    results.sonarr = sonarr.status === "fulfilled" ? sonarr.value : { available: false, error: "Check failed" };
-    results.radarr = radarr.status === "fulfilled" ? radarr.value : { available: false, error: "Check failed" };
+    // Surface per-service error messages from Promise.allSettled rejections
+    results.sonarr =
+      sonarr.status === "fulfilled"
+        ? sonarr.value
+        : {
+            available: false,
+            error:
+              sonarr.reason instanceof Error
+                ? sonarr.reason.message
+                : String(sonarr.reason),
+          };
+
+    results.radarr =
+      radarr.status === "fulfilled"
+        ? radarr.value
+        : {
+            available: false,
+            error:
+              radarr.reason instanceof Error
+                ? radarr.reason.message
+                : String(radarr.reason),
+          };
 
     return {
       success: true,

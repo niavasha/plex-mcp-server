@@ -157,7 +157,8 @@ export class TraktClient {
 
       return tokens;
     } catch (error) {
-      throw new Error(`Token exchange failed: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Token exchange failed: ${msg}`);
     }
   }
 
@@ -187,7 +188,8 @@ export class TraktClient {
 
       return tokens;
     } catch (error) {
-      throw new Error(`Token refresh failed: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Token refresh failed: ${msg}`);
     }
   }
 

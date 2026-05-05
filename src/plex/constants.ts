@@ -56,6 +56,35 @@ export const PLEX_MUTATIVE_OPS_ENV_VAR = "PLEX_ENABLE_MUTATIVE_OPS";
 /** Standardized completion threshold (90%) — was inconsistent 85%/90% across codebase */
 export const COMPLETION_THRESHOLD = 0.90;
 
+/** Minimum duration (ms) before applying completion threshold logic.
+ *  Content shorter than this is considered 'completed' if viewCount > 0.
+ *  Prevents short trailers/clips from false-positive completion detection. */
+export const MIN_COMPLETION_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
 export function isMutativeOpsEnabled(): boolean {
   return process.env[PLEX_MUTATIVE_OPS_ENV_VAR] === "true";
+}
+
+/**
+ * Determine if item is completed, accounting for short-duration content.
+ * Items shorter than MIN_COMPLETION_DURATION_MS require only viewCount > 0.
+ * Longer items require progress >= COMPLETION_THRESHOLD.
+ */
+export function isContentCompleted(
+  duration: number | undefined,
+  viewOffset: number | undefined,
+  viewCount: number | undefined
+): boolean {
+  // No duration or view data → not completed
+  if (!duration || viewOffset === undefined || viewCount === undefined) {
+    return false;
+  }
+
+  // Only viewCount matters for short content
+  if (duration < MIN_COMPLETION_DURATION_MS) {
+    return viewCount > 0;
+  }
+
+  // For longer content, enforce threshold
+  return viewOffset >= duration * COMPLETION_THRESHOLD;
 }

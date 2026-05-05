@@ -5,7 +5,7 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { PlexTools } from "./tools.js";
 import { MCPResponse } from "./types.js";
-import { DEFAULT_LIMITS } from "./constants.js";
+import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR } from "./constants.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
 type TraktStatsProvider = {
@@ -17,6 +17,19 @@ type ToolRegistryOptions = {
   includeMutative?: boolean;
   traktFunctions?: TraktStatsProvider;
 };
+
+// Helper: wrap a handler to check mutative ops are enabled at runtime
+function guardMutativeOp(handler: ToolHandler): ToolHandler {
+  return async (args: Record<string, unknown>) => {
+    if (!isMutativeOpsEnabled()) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Mutative operations are disabled. Enable with ${PLEX_MUTATIVE_OPS_ENV_VAR}=true`
+      );
+    }
+    return handler(args);
+  };
+}
 
 export class ToolRegistry {
   private handlers = new Map<string, ToolHandler>();
@@ -183,68 +196,67 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     );
   });
 
-  if (options.includeMutative) {
-    registry.register("update_metadata", (args) =>
-      tools.updateMetadata({
-        ratingKey: args.ratingKey as string,
-        title: args.title as string | undefined,
-        sortTitle: args.sortTitle as string | undefined,
-        originalTitle: args.originalTitle as string | undefined,
-        summary: args.summary as string | undefined,
-        year: args.year as number | undefined,
-        contentRating: args.contentRating as string | undefined,
-        rating: args.rating as number | undefined,
-        tagline: args.tagline as string | undefined,
-        studio: args.studio as string | undefined,
-        genres: args.genres as unknown[] | undefined,
-        collections: args.collections as unknown[] | undefined,
-        roles: args.roles as unknown[] | undefined,
-        directors: args.directors as unknown[] | undefined,
-      })
-    );
+  // Always register mutative tools, but guard them at runtime
+  registry.register("update_metadata", guardMutativeOp((args) =>
+    tools.updateMetadata({
+      ratingKey: args.ratingKey as string,
+      title: args.title as string | undefined,
+      sortTitle: args.sortTitle as string | undefined,
+      originalTitle: args.originalTitle as string | undefined,
+      summary: args.summary as string | undefined,
+      year: args.year as number | undefined,
+      contentRating: args.contentRating as string | undefined,
+      rating: args.rating as number | undefined,
+      tagline: args.tagline as string | undefined,
+      studio: args.studio as string | undefined,
+      genres: args.genres as unknown[] | undefined,
+      collections: args.collections as unknown[] | undefined,
+      roles: args.roles as unknown[] | undefined,
+      directors: args.directors as unknown[] | undefined,
+    })
+  ));
 
-    registry.register("update_metadata_from_json", (args) =>
-      tools.updateMetadataFromJson(
-        args.ratingKey as string,
-        args.metadata as Record<string, unknown>,
-        (args.setPosterFromUrl as boolean) || false
-      )
-    );
+  registry.register("update_metadata_from_json", guardMutativeOp((args) =>
+    tools.updateMetadataFromJson(
+      args.ratingKey as string,
+      args.metadata as Record<string, unknown>,
+      (args.setPosterFromUrl as boolean) || false
+    )
+  ));
 
-    registry.register("create_playlist", (args) =>
-      tools.createPlaylist(args.title as string, args.type as string, {
-        ratingKeys: args.ratingKeys as string[] | undefined,
-        smart: args.smart as boolean | undefined,
-        librarySectionId: args.librarySectionId as string | undefined,
-        libtype: args.libtype as string | undefined,
-        smartFilter: args.smartFilter as string | undefined,
-      })
-    );
+  registry.register("create_playlist", guardMutativeOp((args) =>
+    tools.createPlaylist(args.title as string, args.type as string, {
+      ratingKeys: args.ratingKeys as string[] | undefined,
+      smart: args.smart as boolean | undefined,
+      librarySectionId: args.librarySectionId as string | undefined,
+      libtype: args.libtype as string | undefined,
+      smartFilter: args.smartFilter as string | undefined,
+    })
+  ));
 
-    registry.register("add_to_playlist", (args) =>
-      tools.addToPlaylist(args.playlistId as string, args.ratingKey as string)
-    );
+  registry.register("add_to_playlist", guardMutativeOp((args) =>
+    tools.addToPlaylist(args.playlistId as string, args.ratingKey as string)
+  ));
 
-    registry.register("remove_from_playlist", (args) =>
-      tools.removeFromPlaylist(args.playlistId as string, args.playlistItemId as string)
-    );
+  registry.register("remove_from_playlist", guardMutativeOp((args) =>
+    tools.removeFromPlaylist(args.playlistId as string, args.playlistItemId as string)
+  ));
 
-    registry.register("clear_playlist", (args) =>
-      tools.clearPlaylist(args.playlistId as string, (args.confirm as boolean) || false)
-    );
+  registry.register("clear_playlist", guardMutativeOp((args) =>
+    tools.clearPlaylist(args.playlistId as string, (args.confirm as boolean) || false)
+  ));
 
-    registry.register("delete_playlist", (args) =>
-      tools.deletePlaylist(args.playlistId as string)
-    );
+  registry.register("delete_playlist", guardMutativeOp((args) =>
+    tools.deletePlaylist(args.playlistId as string)
+  ));
 
-    registry.register("add_to_watchlist", (args) =>
-      tools.addToWatchlist(args.ratingKey as string)
-    );
+  registry.register("add_to_watchlist", guardMutativeOp((args) =>
+    tools.addToWatchlist(args.ratingKey as string)
+  ));
 
-    registry.register("remove_from_watchlist", (args) =>
-      tools.removeFromWatchlist(args.ratingKey as string)
-    );
-  }
+  registry.register("remove_from_watchlist", guardMutativeOp((args) =>
+    tools.removeFromWatchlist(args.ratingKey as string)
+  ));
 
   return registry;
 }

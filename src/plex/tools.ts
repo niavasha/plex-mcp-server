@@ -16,6 +16,7 @@ import {
   SUMMARY_PREVIEW_LENGTH,
   PLEX_MUTATIVE_OPS_ENV_VAR,
   isMutativeOpsEnabled,
+  isContentCompleted,
   RECENCY_HALF_LIFE_DAYS,
   TASTE_TOP_GENRES,
   TASTE_TOP_DIRECTORS,
@@ -23,7 +24,7 @@ import {
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
 } from "./constants.js";
-import { truncate, validatePlexId } from "../shared/utils.js";
+import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
@@ -58,8 +59,8 @@ export class PlexTools {
 
   async getLibraries(): Promise<MCPResponse> {
     const data = await this.client.makeRequest("/library/sections");
-    const container = data as { MediaContainer?: { Directory?: Record<string, unknown>[] } };
-    const libraries = container.MediaContainer?.Directory || [];
+    const validated = validatePlexMediaContainer(data);
+    const libraries = (validated.MediaContainer as Record<string, unknown> | undefined)?.Directory as Record<string, unknown>[] || [];
 
     return jsonResponse({
       libraries: libraries.map((lib) => ({
@@ -96,16 +97,22 @@ export class PlexTools {
     }
 
     const data = await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params);
-    const container = data as {
-      MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
-    };
+    const container = validatePlexTotalSize(data);
     const items = container.MediaContainer?.Metadata || [];
+    const totalSize = container.MediaContainer?.totalSize || 0;
+
+    // Defensive: warn if offset exceeds total size
+    const warning =
+      safeOffset > totalSize
+        ? `offset (${safeOffset}) exceeds total size (${totalSize}); returning empty results`
+        : undefined;
 
     return jsonResponse({
       libraryKey,
       offset: safeOffset,
       limit: safeLimit,
-      totalSize: container.MediaContainer?.totalSize,
+      totalSize,
+      ...(warning ? { warning } : {}),
       items: items.map((item) => ({
         ratingKey: item.ratingKey,
         title: item.title,
@@ -236,14 +243,12 @@ export class PlexTools {
     limit: number = DEFAULT_LIMITS.searchMedia,
     offset: number = 0
   ): Promise<MCPResponse> {
-    if (!query) {
-      throw new McpError(ErrorCode.InvalidRequest, "query is required");
-    }
+    const sanitizedQuery = sanitizeSearchQuery(query);
 
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.searchMedia;
     const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
     const params: Record<string, string | number> = {
-      query,
+      query: sanitizedQuery,
       "X-Plex-Container-Start": safeOffset,
       "X-Plex-Container-Size": safeLimit,
     };
@@ -260,7 +265,7 @@ export class PlexTools {
     const results = container.MediaContainer?.Metadata || [];
 
     return jsonResponse({
-      query,
+      query: sanitizedQuery,
       libraryKey: libraryKey || "all",
       offset: safeOffset,
       limit: safeLimit,
@@ -948,10 +953,11 @@ export class PlexTools {
             (session.viewOffset as number) && (session.duration as number)
               ? Math.round(((session.viewOffset as number) / (session.duration as number)) * 100)
               : 0,
-          completed:
-            (session.viewOffset as number) && (session.duration as number)
-              ? (session.viewOffset as number) >= (session.duration as number) * COMPLETION_THRESHOLD
-              : false,
+          completed: isContentCompleted(
+            session.duration as number | undefined,
+            session.viewOffset as number | undefined,
+            1 // viewCount always > 0 for watched items
+          ),
         })),
         totalSessions: sessions.length,
       });
@@ -998,11 +1004,11 @@ export class PlexTools {
 
       items = items.filter((item) => {
         if (!(item.viewCount as number) || (item.viewCount as number) === 0) return false;
-        if ((item.duration as number) && item.viewOffset !== undefined) {
-          const completionPercent = (item.viewOffset as number) / (item.duration as number);
-          return completionPercent >= COMPLETION_THRESHOLD;
-        }
-        return (item.viewCount as number) > 0 && item.lastViewedAt;
+        return isContentCompleted(
+          item.duration as number | undefined,
+          item.viewOffset as number | undefined,
+          item.viewCount as number | undefined
+        );
       });
 
       items = items.slice(0, limit);
@@ -1601,10 +1607,11 @@ export class PlexTools {
           (item.viewOffset as number) && (item.duration as number)
             ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
             : 0,
-        completed:
-          (item.viewOffset as number) && (item.duration as number)
-            ? (item.viewOffset as number) >= (item.duration as number) * COMPLETION_THRESHOLD
-            : (item.viewCount as number) > 0,
+        completed: isContentCompleted(
+          item.duration as number | undefined,
+          item.viewOffset as number | undefined,
+          item.viewCount as number | undefined
+        ),
       })),
       totalSessions: allViewedItems.length,
       note: "Generated from library metadata (fallback method)",
@@ -1911,22 +1918,23 @@ export class PlexTools {
   ): LibraryMovieRecord & { score: number; reasons: string[] } {
     const reasons: string[] = [];
 
-    // Genre match (0.45)
+    // Genre match: average across genres to prevent single-genre dominance
     let genreScore = 0;
     for (const genre of movie.genres) {
       const gs = profile.genreScores.get(genre) || 0;
       if (gs > 0.3) reasons.push(`You love ${genre}`);
       genreScore += gs;
     }
-    genreScore = Math.min(genreScore / Math.max(movie.genres.length, 1), 1.0);
+    // Normalize: divide by genre count to avoid multi-genre penalty
+    genreScore = movie.genres.length > 0 ? (genreScore / movie.genres.length) * 0.8 + 0.2 : 0.2;
 
-    // Rating bonus (0.25)
-    const ratingScore = movie.rating !== undefined ? (movie.rating / 10) * qualityBias : 0.5;
+    // Rating bonus: normalize to 0–1 range (accounting for qualityBias)
+    const ratingScore = movie.rating !== undefined ? Math.min((movie.rating / 10) * qualityBias, 1.0) : 0.5;
     if (movie.rating !== undefined && movie.rating >= 7) {
       reasons.push(`Highly rated (${movie.rating}/10)`);
     }
 
-    // Director match (0.15)
+    // Director match: cap at 1.0 for single strong match
     let directorScore = 0;
     for (const director of movie.directors) {
       const count = profile.directorCounts.get(director) || 0;
@@ -1937,7 +1945,7 @@ export class PlexTools {
       }
     }
 
-    // Actor match (0.10)
+    // Actor match: normalized to 0–1
     let actorScore = 0;
     const topActors = [...profile.actorCounts.entries()]
       .sort(([, a], [, b]) => b - a)
@@ -1951,15 +1959,16 @@ export class PlexTools {
       }
     }
 
-    // Era match (0.05)
+    // Era match: normalized to 0–1
     let eraScore = 0.5;
     if (movie.year && profile.yearStdDev > 0) {
       eraScore = Math.exp(-((movie.year - profile.yearMean) ** 2) / (2 * profile.yearStdDev ** 2));
     }
 
+    // Weighted sum: all components now normalized to 0–1 range
     const score =
-      genreScore * 0.45 +
-      ratingScore * 0.25 +
+      genreScore * 0.40 +
+      ratingScore * 0.30 +
       directorScore * 0.15 +
       actorScore * 0.10 +
       eraScore * 0.05;

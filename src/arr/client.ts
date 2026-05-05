@@ -74,6 +74,16 @@ class ArrClient {
           `${this.serviceName}: Endpoint not found — check URL and API version`
         );
       }
+      // Strip sensitive data from axios error before re-throwing
+      if (error.response?.data) {
+        const message = typeof error.response.data === 'string'
+          ? error.response.data
+          : (error.response.data as Record<string, unknown>)?.message || JSON.stringify(error.response.data);
+        throw new Error(`${this.serviceName}: ${error.response.status} ${message}`);
+      }
+      if (error.message) {
+        throw new Error(`${this.serviceName}: ${error.message}`);
+      }
       throw error;
     });
   }
@@ -119,7 +129,9 @@ export class SonarrClient extends ArrClient {
   }
 
   async getSeries(): Promise<SonarrSeries[]> {
-    const { data } = await this.http.get("/series");
+    const { data } = await this.http.get("/series", {
+      timeout: ARR_LARGE_REQUEST_TIMEOUT,
+    });
     return ensureArray(data);
   }
 

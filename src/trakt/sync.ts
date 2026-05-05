@@ -111,7 +111,8 @@ export class TraktSyncEngine {
       const plexMovies = await this.plexClient.getWatchedMovies();
       console.log(`Found ${plexMovies.length} watched movies in Plex`);
 
-      // Validate and convert movies
+      // Validate and convert movies (dedupe by GUID to avoid double-scrobble of multi-version items)
+      const seenMovieGuids = new Set<string>();
       const validMovies = plexMovies.filter(movie => {
         const validation = this.mapper.validatePlexItemForSync(movie);
         if (!validation.valid) {
@@ -119,6 +120,9 @@ export class TraktSyncEngine {
           result.itemsFailed++;
           return false;
         }
+        const dedupeKey = movie.guid ?? `${movie.title}::${movie.year ?? ''}`;
+        if (seenMovieGuids.has(dedupeKey)) return false;
+        seenMovieGuids.add(dedupeKey);
         return true;
       });
 
@@ -157,7 +161,8 @@ export class TraktSyncEngine {
       const plexEpisodes = await this.plexClient.getWatchedEpisodes();
       console.log(`Found ${plexEpisodes.length} watched episodes in Plex`);
 
-      // Validate and convert episodes
+      // Validate and convert episodes (dedupe by GUID; falls back to show+S/E composite key)
+      const seenEpisodeGuids = new Set<string>();
       const validEpisodes = plexEpisodes.filter(episode => {
         const validation = this.mapper.validatePlexItemForSync(episode);
         if (!validation.valid) {
@@ -165,6 +170,11 @@ export class TraktSyncEngine {
           result.itemsFailed++;
           return false;
         }
+        const dedupeKey =
+          episode.guid ??
+          `${episode.show?.title ?? ''}::S${episode.seasonNumber}E${episode.episodeNumber}`;
+        if (seenEpisodeGuids.has(dedupeKey)) return false;
+        seenEpisodeGuids.add(dedupeKey);
         return true;
       });
 

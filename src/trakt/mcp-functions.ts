@@ -13,7 +13,7 @@ import {
 } from './types.js';
 import { DEFAULT_TRAKT_API_URL, DEFAULT_BATCH_SIZE, ACHIEVEMENT_THRESHOLDS, TRAKT_PREVIEW_LIMIT } from './constants.js';
 import { SUMMARY_PREVIEW_LENGTH } from '../plex/constants.js';
-import { truncate } from '../shared/utils.js';
+import { truncate, sanitizeSearchQuery } from '../shared/utils.js';
 
 export class TraktMCPFunctions {
   private traktClient!: TraktClient;
@@ -418,9 +418,10 @@ export class TraktMCPFunctions {
       this.initializeTraktClient();
     }
 
+    const sanitizedQuery = sanitizeSearchQuery(query);
     const effectiveLimit = limit || TRAKT_PREVIEW_LIMIT;
     try {
-      const results = await this.traktClient.search(query, type, year);
+      const results = await this.traktClient.search(sanitizedQuery, type, year);
 
       return {
         success: true,

@@ -10,10 +10,12 @@ export {
   PLEX_TYPE_IDS,
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
+  MIN_COMPLETION_DURATION_MS,
   DEFAULT_PLEX_URL,
   PLEX_CONTAINER_SIZE,
   SUMMARY_PREVIEW_LENGTH,
   PLEX_MUTATIVE_OPS_ENV_VAR,
   isMutativeOpsEnabled,
+  isContentCompleted,
 } from "./constants.js";
 export type { PlexConfig, MCPResponse } from "./types.js";

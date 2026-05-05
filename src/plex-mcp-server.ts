@@ -50,11 +50,9 @@ class UnifiedMCPServer {
       token: plexToken,
     });
 
-    const mutativeEnabled = isMutativeOpsEnabled();
     const plexTools = new PlexTools(plexClient);
     const traktFunctions = new TraktMCPFunctions(plexClient);
     const plexRegistry = createPlexToolRegistry(plexTools, {
-      includeMutative: mutativeEnabled,
       traktFunctions,
     });
     const traktRegistry = createTraktToolRegistry(traktFunctions);
@@ -64,7 +62,7 @@ class UnifiedMCPServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         ...PLEX_TOOL_SCHEMAS,
-        ...(mutativeEnabled ? PLEX_MUTATIVE_TOOL_SCHEMAS : []),
+        ...PLEX_MUTATIVE_TOOL_SCHEMAS,
         ...TRAKT_TOOL_SCHEMAS,
         ...ARR_TOOL_SCHEMAS,
       ],
