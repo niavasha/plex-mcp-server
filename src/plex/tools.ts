@@ -443,6 +443,44 @@ export class PlexTools {
     });
   }
 
+  async getActiveSessions(): Promise<MCPResponse> {
+    const data = await this.client.makeRequest("/status/sessions");
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; size?: number } };
+    const items = container.MediaContainer?.Metadata || [];
+
+    return jsonResponse({
+      activeSessions: items.map((item: Record<string, unknown>) => ({
+        ratingKey: item.ratingKey,
+        title: item.title,
+        type: item.type,
+        grandparentTitle: item.grandparentTitle,
+        parentTitle: item.parentTitle,
+        summary: (item.summary as string || '').slice(0, 200),
+        duration: item.duration,
+        viewOffset: item.viewOffset,
+        user: item.User ? (item.User as Record<string, unknown>).title : null,
+        player: item.Player ? {
+          title: (item.Player as Record<string, unknown>).title,
+          state: (item.Player as Record<string, unknown>).state,
+          platform: (item.Player as Record<string, unknown>).platform,
+        } : null,
+        session: item.Session ? {
+          location: (item.Session as Record<string, unknown>).location,
+        } : null,
+        transcode: item.TranscodeSession ? {
+          videoDecision: (item.TranscodeSession as Record<string, unknown>).videoDecision,
+          audioDecision: (item.TranscodeSession as Record<string, unknown>).audioDecision,
+        } : null,
+        media: item.Media ? {
+          videoResolution: (item.Media as Record<string, unknown>).videoResolution,
+          videoCodec: (item.Media as Record<string, unknown>).videoCodec,
+          audioCodec: (item.Media as Record<string, unknown>).audioCodec,
+        } : null,
+      })),
+      sessionCount: container.MediaContainer?.size || 0,
+    });
+  }
+
   async getMediaDetails(ratingKey: string): Promise<MCPResponse> {
     validatePlexId(ratingKey, "ratingKey");
     const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
