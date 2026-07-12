@@ -32,11 +32,10 @@ import { ARR_TOOL_SCHEMAS } from "./arr/tool-schemas.js";
 import { createArrToolRegistry } from "./arr/tool-registry.js";
 
 class UnifiedMCPServer {
-  private server: Server;
-
-  constructor() {
-    this.server = new Server(
-      { name: "plex-mcp-server", version: "1.1.0" },
+  // Exposed so transport.ts can call main() to get a fresh server per session.
+  static createServer() {
+    const server = new Server(
+      { name: "plex-mcp-server", version: "1.2.0" },
       { capabilities: { tools: {} } }
     );
 
@@ -52,14 +51,12 @@ class UnifiedMCPServer {
 
     const plexTools = new PlexTools(plexClient);
     const traktFunctions = new TraktMCPFunctions(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools, {
-      traktFunctions,
-    });
+    const plexRegistry = createPlexToolRegistry(plexTools, { traktFunctions });
     const traktRegistry = createTraktToolRegistry(traktFunctions);
     const arrFunctions = new ArrMCPFunctions();
     const arrRegistry = createArrToolRegistry(arrFunctions);
 
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         ...PLEX_TOOL_SCHEMAS,
         ...PLEX_MUTATIVE_TOOL_SCHEMAS,
@@ -68,10 +65,9 @@ class UnifiedMCPServer {
       ],
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const a = (args ?? {}) as Record<string, unknown>;
-
       try {
         if (plexRegistry.has(name)) return await plexRegistry.handle(name, a);
         if (traktRegistry.has(name)) return await traktRegistry.handle(name, a);
@@ -82,10 +78,16 @@ class UnifiedMCPServer {
         throw new McpError(ErrorCode.InternalError, `Error executing ${name}: ${msg}`);
       }
     });
+
+    return server;
   }
 
   async run() {
-    await startServer(this.server, "Plex MCP server (unified)");
+    // Pass a factory so transport creates one server per session.
+    await startServer(
+      () => UnifiedMCPServer.createServer(),
+      "Plex MCP server (unified)"
+    );
   }
 }
 
