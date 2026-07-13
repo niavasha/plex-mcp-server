@@ -155,7 +155,7 @@ Once configured, you can ask your AI assistant:
 
 ## Available Functions
 
-### Plex Tools (19 tools)
+### Plex Tools (20 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -178,10 +178,13 @@ Once configured, you can ask your AI assistant:
 | `get_library_stats` | Library usage metrics |
 | `get_popular_content` | Most popular content analysis |
 | `get_recommendations` | Personalized movie recommendations based on your watch history |
+| `get_active_sessions` | Currently active Plex streams (who is watching what, player state, transcoding) |
 
 ### Write Operations (9 tools, opt-in)
 
 Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI assistant to make changes to your Plex server. **Use with care** — while we test these tools, there are no guarantees. Review changes your assistant proposes before confirming.
+
+46 tools out of the box (55 with write operations enabled).
 
 | Function | Description |
 |----------|-------------|
