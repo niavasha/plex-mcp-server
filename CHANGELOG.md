@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`get_active_sessions`**: new tool that queries `/status/sessions` and returns active streams with user, player state, session location, transcode decisions, and media details. Enables AI assistants to answer "who is watching what right now."
+- **`Dockerfile`**: multi-stage Node 20 image for containerized deployment of the MCP server.
+
+### Fixed
+- **Multi-session HTTP transport**: Replace single shared transport with per-session transport map. One `McpServer` instance per session, stored by ID and reused on subsequent requests. Closes sessions after 300s idle. Fixes concurrent agents receiving `400 already initialized` errors when sharing a single server instance.
+
 ## [1.2.0] — 2026-04-15
 
 ### Fixed
