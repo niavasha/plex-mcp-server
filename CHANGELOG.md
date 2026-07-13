@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`get_active_sessions`**: new tool that queries `/status/sessions` and returns active streams with user, player state, session location, transcode decisions, and media details. Enables AI assistants to answer "who is watching what right now."
+
 ## [1.2.0] — 2026-04-15
 
 ### Fixed
