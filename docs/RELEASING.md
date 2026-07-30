@@ -37,6 +37,20 @@ starts workflows — but `workflow_dispatch` is explicitly exempt from that rule
 `publish.yml` skips the publish if the version is already on npm, so a repeated
 dispatch is harmless rather than a hard error.
 
+### Provenance names the ref you dispatch from
+
+The dispatch targets the **tag**, not `main`. GitHub's OIDC claims describe the
+ref the workflow was taken from, and those claims become the SLSA provenance
+attached to the npm package. Dispatching from `main` makes the package attest
+`refs/heads/main` at whatever commit `main` happens to be — even though the job
+checks out the tag — so the signature names a different source commit than the
+artifact was actually built from.
+
+1.3.0 shipped with exactly that flaw: its provenance records
+`refs/heads/main@5314758` while the tag is `5deacd4`. Fixed from 1.3.1 onward.
+Because the dispatch now targets the tag, the tag must contain a `publish.yml`
+with a `workflow_dispatch` trigger — true for every tag cut after that change.
+
 **If you ever move the publish to a different workflow file, update the trusted
 publisher on npmjs.com to match, or releases will silently stop reaching npm.**
 

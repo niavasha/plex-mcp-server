@@ -46,4 +46,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Dispatching publish.yml for $TAG"
-          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
+          # Dispatch against the TAG, not main. GitHub's OIDC claims describe
+          # the ref the workflow was taken from, and those claims become the
+          # SLSA provenance. Dispatching from main makes the published package
+          # attest `refs/heads/main` at whatever commit main happens to be,
+          # even though the job checks out the tag — so the signature names a
+          # different source commit than the artifact was built from.
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag="$TAG"
