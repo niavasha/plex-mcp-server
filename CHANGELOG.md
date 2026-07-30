@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1](https://github.com/niavasha/plex-mcp-server/compare/v1.3.0...v1.3.1) (2026-07-30)
+
+
+### Fixed
+
+* **ci:** dispatch the publish from the tag so provenance names the right commit ([1dfe9e0](https://github.com/niavasha/plex-mcp-server/commit/1dfe9e08273c2e40ab3137cbe235d3e49a7619c2))
+* **ci:** publish from publish.yml only, so npm accepts the release ([839060e](https://github.com/niavasha/plex-mcp-server/commit/839060eaa3cb118427eface3155a00254ad54a8a))
+
+
+### Documentation
+
+* dedupe the released 1.3.0 changelog ([ff65d2f](https://github.com/niavasha/plex-mcp-server/commit/ff65d2f9502aeb26971b701e690cb854a9d70f70))
+
 ## [1.3.0](https://github.com/niavasha/plex-mcp-server/compare/v1.2.0...v1.3.0) (2026-07-30)
 
 
