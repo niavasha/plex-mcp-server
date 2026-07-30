@@ -68,15 +68,34 @@ Release Please decides the bump from the commit types since the last release:
 | `fix:` | patch |
 | `feat:` | minor |
 | `feat!:` / `BREAKING CHANGE:` footer | major |
-| `docs:`, `build:` | patch (shown in changelog) |
-| `ci:`, `chore:`, `refactor:`, `test:` | no release |
+| `docs:`, `build:` | **no bump** — appears in the changelog of the next release, but does not cause one |
+| `ci:`, `chore:`, `refactor:`, `test:` | no bump, hidden from the changelog |
 
-Dependabot is configured in `.github/dependabot.yml` to use these prefixes —
-`fix` for production dependencies (so a security bump ships a patch release),
-`chore` for dev dependencies, `ci` for actions, `build` for Docker base images.
-Without that, its default `Bump X from A to B` is not a Conventional Commit and
-Release Please ignores it entirely, meaning **security updates would never cut
-a release**.
+Only `feat`, `fix` and breaking changes move the version. `changelog-sections`
+in `release-please-config.json` controls **visibility only** — marking a type
+visible does not make it releasable. If the only commits since the last release
+are `docs`/`build`/`ci`/`chore`, no release PR is opened at all.
+
+Dependabot is configured in `.github/dependabot.yml` to use these prefixes.
+Without that, its default `Bump X from A to B` is not a Conventional Commit at
+all and Release Please ignores it entirely — meaning **security updates would
+never cut a release**.
+
+| Ecosystem | Prefix | Result | Why |
+|---|---|---|---|
+| npm, production | `fix` | **patch release** | Ships in the published package, so consumers need a version |
+| npm, development | `chore` | no release | Not in the published tarball |
+| github-actions | `ci` | no release | Affects the build, not the artefact |
+| docker | `build` | no release | The base image is not part of the npm package, and no image is published to a registry |
+
+Dependency updates should therefore only ever produce **patch** releases, never
+minor ones — a dependency bump does not change *this* package's public API. A
+minor bump means a `feat` landed.
+
+**Caveat on the Docker row:** if this project ever starts publishing a container
+image, a base-image CVE fix would need to ship, and `build` would have to become
+`fix`. As things stand nothing is published from the Dockerfile, so a bump there
+correctly releases nothing.
 
 ## Prerequisites (already configured)
 
