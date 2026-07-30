@@ -109,7 +109,9 @@ const GET_MEDIA_DETAILS_SCHEMA = {
 
 const GET_ACTIVE_SESSIONS_SCHEMA = {
   name: "get_active_sessions",
-  description: "Get currently active Plex sessions (what's playing now)",
+  description:
+    "Get currently active Plex streams — who is watching what right now, " +
+    "including player state, session location, transcode decisions and media quality",
   inputSchema: {
     type: "object" as const,
     properties: {},

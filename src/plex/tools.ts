@@ -445,39 +445,53 @@ export class PlexTools {
 
   async getActiveSessions(): Promise<MCPResponse> {
     const data = await this.client.makeRequest("/status/sessions");
-    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; size?: number } };
-    const items = container.MediaContainer?.Metadata || [];
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const items = container.MediaContainer?.Metadata ?? [];
 
     return jsonResponse({
-      activeSessions: items.map((item: Record<string, unknown>) => ({
-        ratingKey: item.ratingKey,
-        title: item.title,
-        type: item.type,
-        grandparentTitle: item.grandparentTitle,
-        parentTitle: item.parentTitle,
-        summary: (item.summary as string || '').slice(0, 200),
-        duration: item.duration,
-        viewOffset: item.viewOffset,
-        user: item.User ? (item.User as Record<string, unknown>).title : null,
-        player: item.Player ? {
-          title: (item.Player as Record<string, unknown>).title,
-          state: (item.Player as Record<string, unknown>).state,
-          platform: (item.Player as Record<string, unknown>).platform,
-        } : null,
-        session: item.Session ? {
-          location: (item.Session as Record<string, unknown>).location,
-        } : null,
-        transcode: item.TranscodeSession ? {
-          videoDecision: (item.TranscodeSession as Record<string, unknown>).videoDecision,
-          audioDecision: (item.TranscodeSession as Record<string, unknown>).audioDecision,
-        } : null,
-        media: item.Media ? {
-          videoResolution: (item.Media as Record<string, unknown>).videoResolution,
-          videoCodec: (item.Media as Record<string, unknown>).videoCodec,
-          audioCodec: (item.Media as Record<string, unknown>).audioCodec,
-        } : null,
-      })),
-      sessionCount: container.MediaContainer?.size || 0,
+      activeSessions: items.map((item) => {
+        // Plex returns Media as a list (python-plexapi: "media (List<Media>)").
+        // The first entry describes the stream actually being played.
+        const media = (item.Media as Record<string, unknown>[] | undefined)?.[0];
+        const player = item.Player as Record<string, unknown> | undefined;
+        const session = item.Session as Record<string, unknown> | undefined;
+        const transcode = item.TranscodeSession as Record<string, unknown> | undefined;
+
+        return {
+          ratingKey: item.ratingKey,
+          sessionKey: item.sessionKey,
+          title: item.title,
+          type: item.type,
+          grandparentTitle: item.grandparentTitle,
+          parentTitle: item.parentTitle,
+          summary: item.summary
+            ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH)
+            : undefined,
+          duration: item.duration,
+          viewOffset: item.viewOffset,
+          user: (item.User as Record<string, unknown> | undefined)?.title ?? null,
+          player: player
+            ? { title: player.title, state: player.state, platform: player.platform }
+            : null,
+          session: session ? { location: session.location } : null,
+          transcode: transcode
+            ? {
+                videoDecision: transcode.videoDecision,
+                audioDecision: transcode.audioDecision,
+              }
+            : null,
+          media: media
+            ? {
+                videoResolution: media.videoResolution,
+                videoCodec: media.videoCodec,
+                audioCodec: media.audioCodec,
+              }
+            : null,
+        };
+      }),
+      // Derived from what we actually return — MediaContainer.size can be
+      // stale or reflect paging rather than the sessions in this payload.
+      sessionCount: items.length,
     });
   }
 
