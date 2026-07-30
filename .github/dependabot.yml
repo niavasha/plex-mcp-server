@@ -17,6 +17,15 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    # Conventional prefixes so Release Please sees these commits at all —
+    # its default parser ignores "Bump X from A to B" entirely, which would
+    # mean dependency and security updates never cut a release.
+    # Production deps use "fix" so a security bump ships a patch release;
+    # dev deps use "chore", which is changelog-hidden and releases nothing.
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+      include: "scope"
     reviewers:
       - "niavasha"
 
@@ -30,6 +39,9 @@ updates:
       github-actions:
         patterns:
           - "*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
     reviewers:
       - "niavasha"
 
@@ -46,5 +58,8 @@ updates:
       docker:
         patterns:
           - "*"
+    commit-message:
+      prefix: "build"
+      include: "scope"
     reviewers:
       - "niavasha"

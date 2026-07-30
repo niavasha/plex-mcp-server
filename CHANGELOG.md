@@ -2,24 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
-### Added
-- **`get_active_sessions`** — new Plex tool returning currently active streams: who is watching, what they are watching, player state and platform, session location (lan/wan/cellular), transcode decisions, and media quality. Lets an assistant answer "who is watching what right now." Contributed by [Jeremy Mulenex (@poedenon)](https://github.com/poedenon) in [#89](https://github.com/niavasha/plex-mcp-server/pull/89). Plex tool count 19 → 20; 46 tools total (55 with write operations enabled).
-- 13 tests covering `get_active_sessions`, including a regression test for the `Media` array shape described below.
-- **`Dockerfile` and `.dockerignore`** — multi-stage build (Node 22) that compiles in a build stage with devDependencies and ships a production-only runtime image running as the unprivileged `node` user, with a `/health` HEALTHCHECK. Based on the Dockerfile contributed in [#89](https://github.com/niavasha/plex-mcp-server/pull/89).
-- **Session capacity and body-size limits** for HTTP transport, configurable via `MCP_MAX_SESSIONS` (default 64) and `SESSION_TIMEOUT_SECONDS` (default 300). Request bodies over 4 MB are rejected with `413`.
-- 27 tests covering session lifecycle, idle expiry, body limits and concurrent HTTP clients.
-
-### Fixed
-- **`get_active_sessions` read `Media` as an object rather than a list.** The Plex API returns `Media` as an array (python-plexapi: `media (List<Media>)`), so accessing `.videoResolution` on it yielded `undefined` for every stream while still producing a well-formed response. Now reads the first media entry. Caught while adding test coverage to [#89](https://github.com/niavasha/plex-mcp-server/pull/89).
-- **`sessionCount` is now derived from the sessions actually returned** rather than trusting `MediaContainer.size`, which can be stale or reflect paging.
-- **Concurrent HTTP clients failed with `400 already initialized`.** A single shared `Server` instance backed every HTTP connection, but its initialization state is per-connection, so the second client to connect was rejected. Each session now gets its own `Server` and transport, keyed by session ID. Diagnosed by [Jeremy Mulenex (@poedenon)](https://github.com/poedenon) in [#89](https://github.com/niavasha/plex-mcp-server/pull/89). Running more than one agent against one HTTP instance no longer requires a second server process.
-- **Idle sessions were closed regardless of activity.** In the original fix, per-request activity was written to a field the expiry check never read, so every session was torn down 300s after creation even under continuous traffic. Activity is now recorded on the session entry itself and the idle deadline moves with it.
-- **Unbounded request body read.** The HTTP handler accumulated the request body with no ceiling, so an unauthenticated `POST /mcp` could exhaust process memory. Bodies are now capped and oversized requests rejected with `413`.
-- **Unbounded session creation and leaked timers.** Every request without a session header created a transport, a `Server` and a `setInterval`, with no limit and no guaranteed cleanup path. Sessions are now capped (`503` when full) and swept by a single unref'd timer instead of one timer per session.
-- **`DELETE /mcp` now tears a session down** and frees its slot, and `GET`/`DELETE` are routed without attempting to parse a request body.
-
 ## [1.2.0] — 2026-04-15
 
 ### Fixed

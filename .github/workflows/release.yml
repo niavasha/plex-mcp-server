@@ -1,0 +1,68 @@
+name: Release
+
+# Every push to main is considered for release. Release Please accumulates
+# Conventional Commits into a release PR that bumps package.json and CHANGELOG;
+# merging that PR is the act of releasing. That gives one release per batch of
+# work rather than one per commit — a published npm version for every docs or
+# CI commit is churn nobody wants, and a push of N commits fires only one
+# workflow run anyway, so "per commit" is not achievable even in principle.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release Please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create tags and releases
+      pull-requests: write   # maintain the release PR
+      id-token: write        # OIDC for npm trusted publishing
+    steps:
+      - name: Create or update the release PR, and release on merge
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+
+      # Everything below runs only on the push that merges the release PR.
+      #
+      # The publish lives here rather than in publish.yml because a release
+      # created with GITHUB_TOKEN does not trigger further workflow runs —
+      # GitHub blocks that to prevent recursion. publish.yml would therefore
+      # never fire for an automated release. Doing it inline avoids needing a
+      # PAT, and keeps OIDC trusted publishing (no stored npm token).
+      - name: Checkout the released commit
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm ci
+
+      - name: Build
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm run build
+
+      - name: Test
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm test
+
+      - name: Audit
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm audit --audit-level=moderate
+
+      - name: Publish to npm
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm publish --provenance --access public
