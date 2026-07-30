@@ -3,7 +3,7 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 # Needs devDependencies (typescript) to compile, so this cannot be the runtime
 # image. build/ is gitignored, so it is produced here rather than copied in.
-FROM node:22-slim AS build
+FROM node:26-slim AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:22-slim AS runtime
+FROM node:26-slim AS runtime
 
 ENV NODE_ENV=production
 
