@@ -45,6 +45,7 @@ describe("Unified server — tool registration", () => {
     expect(names).toContain("get_on_deck");
     expect(names).toContain("get_media_details");
     expect(names).toContain("get_watch_history");
+    expect(names).toContain("get_active_sessions");
   });
 
   it("includes plex extended analytics tools (regression guard)", () => {

@@ -155,6 +155,8 @@ Once configured, you can ask your AI assistant:
 
 ## Available Functions
 
+46 tools out of the box (55 with write operations enabled).
+
 ### Plex Tools (20 tools)
 
 | Function | Description |
@@ -178,13 +180,11 @@ Once configured, you can ask your AI assistant:
 | `get_library_stats` | Library usage metrics |
 | `get_popular_content` | Most popular content analysis |
 | `get_recommendations` | Personalized movie recommendations based on your watch history |
-| `get_active_sessions` | Currently active Plex streams (who is watching what, player state, transcoding) |
+| `get_active_sessions` | Currently active Plex streams — who is watching what, player state, transcoding |
 
 ### Write Operations (9 tools, opt-in)
 
 Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI assistant to make changes to your Plex server. **Use with care** — while we test these tools, there are no guarantees. Review changes your assistant proposes before confirming.
-
-46 tools out of the box (55 with write operations enabled).
 
 | Function | Description |
 |----------|-------------|
@@ -329,6 +329,8 @@ npm run dev
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
+Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
 ### Development Guidelines
 
 1. **Fork the repository**
@@ -399,6 +401,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
+- **[Everyone who has contributed code](CONTRIBUTORS.md)** — this project is not a solo effort
 - [Anthropic](https://anthropic.com/) for the Model Context Protocol
 - [Plex](https://www.plex.tv/) for the amazing media server
 - [Tautulli](https://tautulli.com/) for analytics inspiration
