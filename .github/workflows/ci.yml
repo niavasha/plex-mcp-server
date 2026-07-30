@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v7
@@ -43,10 +45,20 @@ jobs:
   per-commit:
     name: Per-commit build
     runs-on: ubuntu-latest
+    # Build & Test already executes fork code once per PR, which is the normal
+    # `pull_request` bargain: read-only token, no secrets. This job would run
+    # `npm ci` + `npm test` once per commit, multiplying that by the length of
+    # the branch, so restrict it to code that already has write access here.
+    # Fork commits are not left unchecked: when the PR merges, the push event
+    # covers the whole range and builds each commit individually.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 

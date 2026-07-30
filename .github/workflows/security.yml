@@ -20,6 +20,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     
     - name: Setup Node.js
       uses: actions/setup-node@v7
@@ -58,6 +60,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
@@ -88,6 +92,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
       with:
+        persist-credentials: false
         fetch-depth: 0
     
     - name: Run TruffleHog
@@ -102,6 +107,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     
     - name: Setup Node.js
       uses: actions/setup-node@v7
@@ -125,6 +132,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     
     - name: Run Hadolint
       uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
