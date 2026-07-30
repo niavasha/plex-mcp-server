@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0](https://github.com/niavasha/plex-mcp-server/compare/v1.2.0...v1.3.0) (2026-07-30)
+
+
+### Added
+
+* add get_active_sessions tool for active Plex streams ([47e4248](https://github.com/niavasha/plex-mcp-server/commit/47e424811b3a133b65a9f05efac1f98fe50914a8))
+* get_active_sessions + multi-session HTTP transport (carries [#89](https://github.com/niavasha/plex-mcp-server/issues/89)) ([d52c934](https://github.com/niavasha/plex-mcp-server/commit/d52c9340a48f388cece0007ab609105e115839e1))
+* multi-session HTTP transport + Dockerfile ([c6f760d](https://github.com/niavasha/plex-mcp-server/commit/c6f760db078efd96b23d1f71381b22e43f2e81b0))
+
+
+### Fixed
+
+* **docs:** correct the stale tool count and guard it with a test ([85f9d42](https://github.com/niavasha/plex-mcp-server/commit/85f9d42f78feaab1d1fc86b8a921b6e002416236))
+* **get_active_sessions:** read Media as a list, add test coverage ([b4a1780](https://github.com/niavasha/plex-mcp-server/commit/b4a1780f30873f662f407f1641e4e99e3eb1cb26))
+* **transport:** bound sessions and request bodies, repair idle expiry ([9746691](https://github.com/niavasha/plex-mcp-server/commit/9746691d4c05af237f14262cc38b37224d22c0ed))
+
+
+### Documentation
+
+* add get_active_sessions to README and CHANGELOG ([95b90d6](https://github.com/niavasha/plex-mcp-server/commit/95b90d6b5d92a4e7db9d83ce4eeeb3cab33211eb))
+* correct the guidance on fixing a bad changelog entry ([30cdaa6](https://github.com/niavasha/plex-mcp-server/commit/30cdaa60aebca38fa9c19f479c5c5b5cbf54a130))
+* expand CHANGELOG with Dockerfile and multi-session fix ([630404d](https://github.com/niavasha/plex-mcp-server/commit/630404de89b8cee27e320ccab91164158de5ef4d))
+
+
+### Dependencies
+
+* **deps:** bump axios from 1.18.1 to 1.19.0 in the production-dependencies group ([d03f9ed](https://github.com/niavasha/plex-mcp-server/commit/d03f9ed5423bbc791369388841bf74fca0096e1c))
+* **deps:** bump axios in the production-dependencies group ([586d755](https://github.com/niavasha/plex-mcp-server/commit/586d755ab842e4462bf426c3c61de779676d98e3))
+* **deps:** bump node from 22-slim to 26-slim in the docker group ([78cc8cb](https://github.com/niavasha/plex-mcp-server/commit/78cc8cb03d5bd2d74d5515cfafe1752e3b0ce28f))
+* **deps:** bump node from 22-slim to 26-slim in the docker group ([186b201](https://github.com/niavasha/plex-mcp-server/commit/186b201996dfa3dbb6e2f4a0b5f6ead54cc98eb8))
+
 ## [1.2.0] — 2026-04-15
 
 ### Fixed
