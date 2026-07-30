@@ -329,7 +329,7 @@ npm run dev
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
-Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md).
+Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md). Please use [Conventional Commits](https://www.conventionalcommits.org/) — releases and the changelog are generated from them, see [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Development Guidelines
 
