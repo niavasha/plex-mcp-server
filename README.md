@@ -27,7 +27,7 @@ This MCP server transforms your Plex Media Server into an AI-queryable database.
 
 ## Features
 
-**45 tools** out of the box (54 with write operations enabled):
+**46 tools** out of the box (55 with write operations enabled):
 
 - **Plex Library Management** — Browse libraries, search media, get detailed metadata, list playlists and watchlist
 - **Tautulli-Style Analytics** — Viewing statistics, user activity, popular content, watch history
@@ -329,7 +329,7 @@ npm run dev
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
-Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md).
+Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md). Please use [Conventional Commits](https://www.conventionalcommits.org/) — releases and the changelog are generated from them, see [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Development Guidelines
 

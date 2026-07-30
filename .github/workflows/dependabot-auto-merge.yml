@@ -19,9 +19,15 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Squash, not merge. A merge commit makes Release Please count the
+      # update twice — once from the PR title it associates with the merge
+      # commit, and once from the commit inside — so every dependency bump
+      # appears as a duplicate changelog line. Contributor PRs are still
+      # merged (not squashed) to preserve authorship on the contributors
+      # graph; Dependabot is a bot and has no authorship to preserve.
       - name: Auto-merge patch and minor updates
         if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr merge "$PR_URL" --auto --merge
+        run: gh pr merge "$PR_URL" --auto --squash
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
