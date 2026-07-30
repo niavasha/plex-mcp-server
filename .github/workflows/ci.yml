@@ -34,3 +34,93 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # A push of N commits fires one workflow run, against the head SHA only, so
+  # every commit between the previous head and the new one lands on main having
+  # never been compiled or tested. That is invisible until someone bisects and
+  # hits a commit that cannot build. This job walks the range and builds each
+  # non-merge commit individually.
+  per-commit:
+    name: Per-commit build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Resolve the commit range
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # A new branch, or a force push, reports an all-zero "before".
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No usable base ref for $EVENT — checking the head commit only."
+            RANGE="$HEAD~1..$HEAD"
+          else
+            RANGE="$BASE..$HEAD"
+          fi
+          # --no-merges: merge commits carry no changes of their own, and the
+          # merged result is already covered by the Build & Test job above.
+          git rev-list --no-merges --reverse "$RANGE" > commits.txt || true
+          COUNT=$(wc -l < commits.txt | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Range $RANGE contains $COUNT non-merge commit(s)."
+
+      - name: Build and test each commit
+        if: steps.range.outputs.count != '0'
+        env:
+          MAX_COMMITS: 25
+        run: |
+          set -uo pipefail
+          COUNT=$(wc -l < commits.txt | tr -d ' ')
+
+          # Bound the work on very large pushes. Anything skipped is named
+          # explicitly — a silent cap would read as "everything passed".
+          if [ "$COUNT" -gt "$MAX_COMMITS" ]; then
+            echo "::warning::$COUNT commits exceeds MAX_COMMITS=$MAX_COMMITS."
+            echo "::warning::Only the newest $MAX_COMMITS will be built. NOT built:"
+            head -n "$((COUNT - MAX_COMMITS))" commits.txt | while read -r s; do
+              echo "::warning::  skipped $(git log -1 --format='%h %s' "$s")"
+            done
+            tail -n "$MAX_COMMITS" commits.txt > trimmed.txt && mv trimmed.txt commits.txt
+          fi
+
+          LOCK_STATE=""
+          FAILED=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            echo "::group::$(git log -1 --format='%h %s' "$sha")"
+            git checkout --quiet --detach "$sha"
+
+            # Reinstall only when the lockfile actually changed — npm ci per
+            # commit dominates the runtime otherwise.
+            NEW_LOCK=$(git hash-object package-lock.json 2>/dev/null || echo none)
+            if [ "$NEW_LOCK" != "$LOCK_STATE" ]; then
+              npm ci --silent || { echo "::error::npm ci failed at $sha"; FAILED=1; echo "::endgroup::"; break; }
+              LOCK_STATE="$NEW_LOCK"
+            fi
+
+            if ! npm run build --silent; then
+              echo "::error::build failed at $(git log -1 --format='%h %s' "$sha")"
+              FAILED=1; echo "::endgroup::"; break
+            fi
+            if ! npm test --silent; then
+              echo "::error::tests failed at $(git log -1 --format='%h %s' "$sha")"
+              FAILED=1; echo "::endgroup::"; break
+            fi
+            echo "::endgroup::"
+          done < commits.txt
+
+          exit $FAILED

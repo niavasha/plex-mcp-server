@@ -32,3 +32,19 @@ updates:
           - "*"
     reviewers:
       - "niavasha"
+
+  # Base images in the Dockerfile (node:22-slim in both build and runtime
+  # stages). Without this, a base image with a published CVE would go
+  # unnoticed — npm audit only sees package.json, not the image.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      docker:
+        patterns:
+          - "*"
+    reviewers:
+      - "niavasha"
