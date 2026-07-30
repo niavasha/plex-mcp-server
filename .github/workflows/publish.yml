@@ -1,5 +1,10 @@
 name: Publish to npm
 
+# Manual releases only. Automated releases are cut by release.yml, which
+# publishes inline — a release created with GITHUB_TOKEN does not trigger
+# workflows, so this one would never fire for them. That means the two cannot
+# double-publish: this runs for releases a human creates, release.yml for the
+# ones Release Please creates.
 on:
   release:
     types: [published]
