@@ -125,17 +125,33 @@ jobs:
         npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense;MPL-2.0'
 
   dockerfile-security:
-    name: Dockerfile Security (if applicable)
+    name: Dockerfile Security
     runs-on: ubuntu-latest
-    if: contains(github.event.head_commit.message, 'docker') || contains(github.event.pull_request.title, 'docker')
-    
+    # Previously gated on the commit message or PR title mentioning "docker",
+    # which made sense when the repo had no Dockerfile. Now that one is
+    # committed, that condition means the image is only linted when someone
+    # happens to use the word — so an unrelated change could break the image
+    # and skip the check entirely. The job now always runs; the lint step is
+    # gated on the file actually being present, which can only be evaluated
+    # after checkout.
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
       with:
         persist-credentials: false
-    
+
+    - name: Look for a Dockerfile
+      id: detect
+      run: |
+        if [ -f Dockerfile ]; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "No Dockerfile in the repo — nothing to lint."
+        fi
+
     - name: Run Hadolint
+      if: steps.detect.outputs.found == 'true'
       uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
       with:
         dockerfile: Dockerfile
