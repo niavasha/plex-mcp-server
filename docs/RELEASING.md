@@ -17,16 +17,28 @@ there is nothing to cut by hand.
 Nothing reaches npm until you merge that PR, so the version and changelog are
 always reviewable first.
 
-### Why the publish is not in `publish.yml`
+### How the publish actually happens
 
-A release created with `GITHUB_TOKEN` **does not trigger further workflow
-runs** — GitHub blocks that to prevent recursion. `publish.yml` fires on
-`release: published`, so it would never run for an automated release: you would
-get GitHub Releases that silently never reach npm, with every check green.
+`publish.yml` is the **only** workflow that publishes to npm. That is not
+stylistic: npm's OIDC trusted publishing is bound to a specific workflow
+*filename*, so publishing from any other file is rejected with
+`E404 ... you do not have permission` — even though the OIDC token is valid and
+the provenance statement signs successfully. The 404 (rather than a 403) makes
+it read like a missing package.
 
-So `release.yml` publishes inline. `publish.yml` remains for releases a human
-creates manually. The two cannot double-publish, precisely because of the rule
-above.
+This bit for real: 1.3.0 was published from `release.yml`, got tagged and
+released on GitHub, and never reached npm.
+
+So `release.yml` **dispatches** `publish.yml` instead of publishing itself. It
+has to be a dispatch rather than relying on the `release: published` event,
+because a release created with `GITHUB_TOKEN` does not raise an event that
+starts workflows — but `workflow_dispatch` is explicitly exempt from that rule.
+
+`publish.yml` skips the publish if the version is already on npm, so a repeated
+dispatch is harmless rather than a hard error.
+
+**If you ever move the publish to a different workflow file, update the trusted
+publisher on npmjs.com to match, or releases will silently stop reaching npm.**
 
 ## Merge strategy — this matters
 
