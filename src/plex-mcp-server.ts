@@ -32,8 +32,13 @@ import { ARR_TOOL_SCHEMAS } from "./arr/tool-schemas.js";
 import { createArrToolRegistry } from "./arr/tool-registry.js";
 
 class UnifiedMCPServer {
-  // Exposed so transport.ts can call main() to get a fresh server per session.
-  static createServer() {
+  /**
+   * Build a fully wired Server instance.
+   *
+   * A factory rather than a constructor because HTTP transport needs one
+   * Server per session — a single instance cannot back concurrent clients.
+   */
+  static createServer(): Server {
     const server = new Server(
       { name: "plex-mcp-server", version: "1.2.0" },
       { capabilities: { tools: {} } }
@@ -51,7 +56,9 @@ class UnifiedMCPServer {
 
     const plexTools = new PlexTools(plexClient);
     const traktFunctions = new TraktMCPFunctions(plexClient);
-    const plexRegistry = createPlexToolRegistry(plexTools, { traktFunctions });
+    const plexRegistry = createPlexToolRegistry(plexTools, {
+      traktFunctions,
+    });
     const traktRegistry = createTraktToolRegistry(traktFunctions);
     const arrFunctions = new ArrMCPFunctions();
     const arrRegistry = createArrToolRegistry(arrFunctions);
@@ -68,6 +75,7 @@ class UnifiedMCPServer {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const a = (args ?? {}) as Record<string, unknown>;
+
       try {
         if (plexRegistry.has(name)) return await plexRegistry.handle(name, a);
         if (traktRegistry.has(name)) return await traktRegistry.handle(name, a);
@@ -81,19 +89,10 @@ class UnifiedMCPServer {
 
     return server;
   }
-
-  async run() {
-    // Pass a factory so transport creates one server per session.
-    await startServer(
-      () => UnifiedMCPServer.createServer(),
-      "Plex MCP server (unified)"
-    );
-  }
 }
 
 export async function main() {
-  const server = new UnifiedMCPServer();
-  await server.run();
+  await startServer(() => UnifiedMCPServer.createServer(), "Plex MCP server (unified)");
 }
 
 main().catch((error) => {
