@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`get_active_sessions`** — new Plex tool returning currently active streams: who is watching, what they are watching, player state and platform, session location (lan/wan/cellular), transcode decisions, and media quality. Lets an assistant answer "who is watching what right now." Contributed by [Jeremy Mulenex (@poedenon)](https://github.com/poedenon) in [#89](https://github.com/niavasha/plex-mcp-server/pull/89). Plex tool count 19 → 20; 46 tools total (55 with write operations enabled).
+- 13 tests covering `get_active_sessions`, including a regression test for the `Media` array shape described below.
+
+### Fixed
+- **`get_active_sessions` read `Media` as an object rather than a list.** The Plex API returns `Media` as an array (python-plexapi: `media (List<Media>)`), so accessing `.videoResolution` on it yielded `undefined` for every stream while still producing a well-formed response. Now reads the first media entry. Caught while adding test coverage to [#89](https://github.com/niavasha/plex-mcp-server/pull/89).
+- **`sessionCount` is now derived from the sessions actually returned** rather than trusting `MediaContainer.size`, which can be stale or reflect paging.
+
 ## [1.2.0] — 2026-04-15
 
 ### Fixed
