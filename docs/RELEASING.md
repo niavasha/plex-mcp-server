@@ -48,8 +48,16 @@ title** — `Add get_active_sessions and multi-session HTTP transport`, not
 `feat: add get_active_sessions ...`. The individual commits supply the
 changelog entries; the PR title should not compete with them.
 
-If a duplicate slips through, edit `CHANGELOG.md` directly on the release PR
-branch before merging.
+**Do not hand-edit the release PR to fix a duplicate.** Release Please
+regenerates that branch from scratch on *every* push to `main`, so your edit
+survives only until the next merge — and it will look like it worked right up
+until it silently doesn't. (Confirmed the hard way while setting this up: an
+edit to the 1.3.0 changelog was wiped by the very next merge to `main`.)
+
+If a bad entry reaches a release, fix it in a normal `docs:` commit on `main`
+*after* the release lands. Release Please only regenerates the pending section;
+sections for versions already released are left alone, so the correction is
+permanent.
 
 ## Version bumping
 
