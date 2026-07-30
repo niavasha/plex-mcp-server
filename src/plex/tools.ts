@@ -443,6 +443,58 @@ export class PlexTools {
     });
   }
 
+  async getActiveSessions(): Promise<MCPResponse> {
+    const data = await this.client.makeRequest("/status/sessions");
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const items = container.MediaContainer?.Metadata ?? [];
+
+    return jsonResponse({
+      activeSessions: items.map((item) => {
+        // Plex returns Media as a list (python-plexapi: "media (List<Media>)").
+        // The first entry describes the stream actually being played.
+        const media = (item.Media as Record<string, unknown>[] | undefined)?.[0];
+        const player = item.Player as Record<string, unknown> | undefined;
+        const session = item.Session as Record<string, unknown> | undefined;
+        const transcode = item.TranscodeSession as Record<string, unknown> | undefined;
+
+        return {
+          ratingKey: item.ratingKey,
+          sessionKey: item.sessionKey,
+          title: item.title,
+          type: item.type,
+          grandparentTitle: item.grandparentTitle,
+          parentTitle: item.parentTitle,
+          summary: item.summary
+            ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH)
+            : undefined,
+          duration: item.duration,
+          viewOffset: item.viewOffset,
+          user: (item.User as Record<string, unknown> | undefined)?.title ?? null,
+          player: player
+            ? { title: player.title, state: player.state, platform: player.platform }
+            : null,
+          session: session ? { location: session.location } : null,
+          transcode: transcode
+            ? {
+                videoDecision: transcode.videoDecision,
+                audioDecision: transcode.audioDecision,
+              }
+            : null,
+          media: media
+            ? {
+                videoResolution: media.videoResolution,
+                videoCodec: media.videoCodec,
+                audioCodec: media.audioCodec,
+              }
+            : null,
+        };
+      }),
+      // Derived from what we actually return — MediaContainer.size can be
+      // stale or reflect paging rather than the sessions in this payload.
+      sessionCount: items.length,
+    });
+  }
+
   async getMediaDetails(ratingKey: string): Promise<MCPResponse> {
     validatePlexId(ratingKey, "ratingKey");
     const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);

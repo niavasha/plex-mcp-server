@@ -32,11 +32,15 @@ import { ARR_TOOL_SCHEMAS } from "./arr/tool-schemas.js";
 import { createArrToolRegistry } from "./arr/tool-registry.js";
 
 class UnifiedMCPServer {
-  private server: Server;
-
-  constructor() {
-    this.server = new Server(
-      { name: "plex-mcp-server", version: "1.1.0" },
+  /**
+   * Build a fully wired Server instance.
+   *
+   * A factory rather than a constructor because HTTP transport needs one
+   * Server per session — a single instance cannot back concurrent clients.
+   */
+  static createServer(): Server {
+    const server = new Server(
+      { name: "plex-mcp-server", version: "1.2.0" },
       { capabilities: { tools: {} } }
     );
 
@@ -59,7 +63,7 @@ class UnifiedMCPServer {
     const arrFunctions = new ArrMCPFunctions();
     const arrRegistry = createArrToolRegistry(arrFunctions);
 
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         ...PLEX_TOOL_SCHEMAS,
         ...PLEX_MUTATIVE_TOOL_SCHEMAS,
@@ -68,7 +72,7 @@ class UnifiedMCPServer {
       ],
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const a = (args ?? {}) as Record<string, unknown>;
 
@@ -82,16 +86,13 @@ class UnifiedMCPServer {
         throw new McpError(ErrorCode.InternalError, `Error executing ${name}: ${msg}`);
       }
     });
-  }
 
-  async run() {
-    await startServer(this.server, "Plex MCP server (unified)");
+    return server;
   }
 }
 
 export async function main() {
-  const server = new UnifiedMCPServer();
-  await server.run();
+  await startServer(() => UnifiedMCPServer.createServer(), "Plex MCP server (unified)");
 }
 
 main().catch((error) => {

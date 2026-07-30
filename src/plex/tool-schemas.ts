@@ -107,6 +107,17 @@ const GET_MEDIA_DETAILS_SCHEMA = {
   },
 };
 
+const GET_ACTIVE_SESSIONS_SCHEMA = {
+  name: "get_active_sessions",
+  description:
+    "Get currently active Plex streams — who is watching what right now, " +
+    "including player state, session location, transcode decisions and media quality",
+  inputSchema: {
+    type: "object" as const,
+    properties: {},
+  },
+};
+
 const GET_EDITABLE_FIELDS_SCHEMA = {
   name: "get_editable_fields",
   description: "Get editable fields and available tags for a media item",
@@ -456,6 +467,7 @@ export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_WATCHLIST_SCHEMA,
   GET_RECENTLY_WATCHED_SCHEMA,
   GET_WATCH_HISTORY_SCHEMA,
+  GET_ACTIVE_SESSIONS_SCHEMA,
 ];
 
 const GET_RECOMMENDATIONS_SCHEMA = {
