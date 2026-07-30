@@ -1,17 +1,37 @@
 name: Publish to npm
 
-# Manual releases only. Automated releases are cut by release.yml, which
-# publishes inline — a release created with GITHUB_TOKEN does not trigger
-# workflows, so this one would never fire for them. That means the two cannot
-# double-publish: this runs for releases a human creates, release.yml for the
-# ones Release Please creates.
+# The only place that publishes to npm.
+#
+# npm's OIDC trusted publishing is bound to a specific workflow *filename*, not
+# just the repository — so publishing from anywhere else fails with a confusing
+# `E404 ... you do not have permission` even though the OIDC token is valid and
+# provenance signs successfully. Keeping every publish in this one file means
+# the trusted publisher config never has to change.
+#
+# Triggered two ways:
+#   - release: published  — a release a human cuts in the UI
+#   - workflow_dispatch   — release.yml calls this after Release Please cuts a
+#     release. It has to be a dispatch: a release created with GITHUB_TOKEN does
+#     not raise a `release` event that starts workflows (GitHub blocks that to
+#     prevent recursion), but workflow_dispatch is explicitly exempt.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish, e.g. v1.3.0"
+        required: true
+        type: string
 
 permissions:
   contents: read
   id-token: write
+
+# Never let two publishes of the same tag race.
+concurrency:
+  group: publish-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   ci:
@@ -21,6 +41,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -45,6 +66,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -71,6 +93,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -85,5 +108,22 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Republishing an existing version is a hard error on npm, which would
+      # turn a harmless re-dispatch into a red build. Skip instead.
+      - name: Skip if this version is already on npm
+        id: check
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          echo "publishing $name@$version"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already published — skipping."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
+        if: steps.check.outputs.already == 'false'
         run: npm publish --provenance --access public

@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: write        # create tags and releases
       pull-requests: write   # maintain the release PR
-      id-token: write        # OIDC for npm trusted publishing
+      actions: write         # dispatch publish.yml
     steps:
       - name: Create or update the release PR, and release on merge
         id: release
@@ -28,41 +28,22 @@ jobs:
 
       # Everything below runs only on the push that merges the release PR.
       #
-      # The publish lives here rather than in publish.yml because a release
-      # created with GITHUB_TOKEN does not trigger further workflow runs —
-      # GitHub blocks that to prevent recursion. publish.yml would therefore
-      # never fire for an automated release. Doing it inline avoids needing a
-      # PAT, and keeps OIDC trusted publishing (no stored npm token).
-      - name: Checkout the released commit
+      # The publish is dispatched into publish.yml rather than done here,
+      # because npm's OIDC trusted publishing is bound to a specific workflow
+      # *filename*. Publishing from this file fails with
+      # `E404 ... you do not have permission` even though the OIDC token is
+      # valid and provenance signs fine — which is exactly how 1.3.0 ended up
+      # tagged and released on GitHub but absent from npm.
+      #
+      # workflow_dispatch is used because a release created with GITHUB_TOKEN
+      # does not raise a `release` event that starts workflows, but dispatches
+      # are explicitly exempt from that rule.
+      - name: Publish the release via publish.yml
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Setup Node.js
-        if: ${{ steps.release.outputs.release_created }}
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-          cache: npm
-
-      - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm ci
-
-      - name: Build
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm run build
-
-      - name: Test
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm test
-
-      - name: Audit
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm audit --audit-level=moderate
-
-      - name: Publish to npm
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm publish --provenance --access public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching publish.yml for $TAG"
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
