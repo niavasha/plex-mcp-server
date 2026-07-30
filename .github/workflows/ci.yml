@@ -10,6 +10,55 @@ permissions:
   contents: read
 
 jobs:
+  # The Node matrix below tests against the runner's Node, not the image, and
+  # hadolint only lints the Dockerfile as text. Nothing actually built the
+  # image — so a base-image bump (Dependabot now opens those) could break the
+  # container with every check still green. This builds and boots it.
+  docker-image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t plex-mcp:ci .
+
+      - name: Boot it and check /health
+        run: |
+          set -euo pipefail
+          docker run -d --name plexmcp-ci \
+            -e PLEX_TOKEN=dummy -e PLEX_URL=http://example.invalid:32400 \
+            -p 3000:3000 plex-mcp:ci
+
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/health -o /tmp/health.json; then
+              ok=1; break
+            fi
+            sleep 1
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::Container never served /health"
+            docker logs plexmcp-ci || true
+            exit 1
+          fi
+
+          cat /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+
+          # Regression guard: the runtime stage must not run as root.
+          whoami_out=$(docker exec plexmcp-ci whoami)
+          echo "container user: $whoami_out"
+          [ "$whoami_out" = "node" ] || { echo "::error::expected non-root 'node', got '$whoami_out'"; exit 1; }
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f plexmcp-ci || true
+
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
