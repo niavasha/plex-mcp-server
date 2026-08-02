@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0](https://github.com/niavasha/plex-mcp-server/compare/v1.3.1...v1.4.0) (2026-08-02)
+
+
+### Added
+
+* declare MCP tool annotations (safety hints) for all advertised tools ([dc8859b](https://github.com/niavasha/plex-mcp-server/commit/dc8859b8a171a5804f088762a46c32eeef7d4ed4))
+
+
+### Fixed
+
+* make tool annotations safe-by-default ([ded995d](https://github.com/niavasha/plex-mcp-server/commit/ded995d84110fe940dd5c805d0c6092ee3aa7a5c))
+
 ## [1.3.1](https://github.com/niavasha/plex-mcp-server/compare/v1.3.0...v1.3.1) (2026-07-30)
 
 
