@@ -31,6 +31,14 @@ Listed in order of first contribution.
   transports — the root cause behind needing a second server instance to run
   more than one agent.
 
+- **[@warlyjr-cloud](https://github.com/warlyjr-cloud)** — declared MCP tool
+  annotations (safety hints) across all 55 tools, so a client can tell a read
+  from a write from an irreversible delete
+  ([#117](https://github.com/niavasha/plex-mcp-server/pull/117)). Spotted that
+  the server advertised no `readOnlyHint`/`destructiveHint` at all, which left
+  every tool looking equally risky to an approval UI, and got the per-tool
+  classification right first time.
+
 ## Adding yourself
 
 If you've had a change merged and you're not listed here, that's an oversight
