@@ -20,7 +20,7 @@ import {
   isMutativeOpsEnabled,
 } from "./plex/index.js";
 import { startServer } from "./shared/transport.js";
-import { withAnnotations } from "./tool-annotations.js";
+import { withAnnotations } from "./shared/tool-annotations.js";
 
 // Trakt integration
 import { TraktMCPFunctions } from "./trakt/mcp-functions.js";
