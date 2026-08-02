@@ -20,6 +20,7 @@ import {
   isMutativeOpsEnabled,
 } from "./plex/index.js";
 import { startServer } from "./shared/transport.js";
+import { withAnnotations } from "./tool-annotations.js";
 
 // Trakt integration
 import { TraktMCPFunctions } from "./trakt/mcp-functions.js";
@@ -64,12 +65,12 @@ class UnifiedMCPServer {
     const arrRegistry = createArrToolRegistry(arrFunctions);
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
+      tools: withAnnotations([
         ...PLEX_TOOL_SCHEMAS,
         ...PLEX_MUTATIVE_TOOL_SCHEMAS,
         ...TRAKT_TOOL_SCHEMAS,
         ...ARR_TOOL_SCHEMAS,
-      ],
+      ]),
     }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
