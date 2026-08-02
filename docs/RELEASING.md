@@ -123,6 +123,45 @@ image, a base-image CVE fix would need to ship, and `build` would have to become
 `fix`. As things stand nothing is published from the Dockerfile, so a bump there
 correctly releases nothing.
 
+### Why the release PR needs approving by hand
+
+Without a `RELEASE_TOKEN` secret, Release Please opens the release PR as
+`github-actions[bot]`. Every workflow run on such a PR is held at
+`action_required` with **0s duration** — created but never started. Branch
+protection then sees the required checks as missing and reports the PR as
+`BLOCKED`, which looks exactly like "checks are still pending".
+
+This is not a fork or outside-contributor policy. Measured across 100 PR runs
+on 2026-07-31: `github-actions[bot]` had 16 runs sitting at `action_required`,
+`dependabot[bot]` had **zero**. Dependabot is exempt; the `GITHUB_TOKEN` actor
+is not. 1.3.1 sat unreleased for a day this way, and 1.4.0 did the same.
+
+There is no PR-level approve. Approve each queued run by id:
+
+```bash
+gh run list --branch 'release-please--branches--main--components--plex-mcp-server' \
+  --json databaseId,conclusion,name \
+  --jq '.[] | select(.conclusion=="action_required") | "\(.databaseId) \(.name)"'
+
+gh api -X POST /repos/niavasha/plex-mcp-server/actions/runs/<run_id>/approve
+```
+
+Approving spawns *fresh* runs; the original `action_required` records stay
+frozen, so the run list shows both.
+
+**To stop this happening**, add a `RELEASE_TOKEN` repository secret —
+either a fine-grained PAT or a GitHub App installation token, with
+`contents: write` and `pull_requests: write`. `release.yml` already prefers it
+and falls back to `GITHUB_TOKEN`, so the secret is the only step; nothing
+breaks while it is absent.
+
+Note that once `RELEASE_TOKEN` is set, the GitHub Release is created by a real
+identity and therefore *does* raise `release: published`. `publish.yml` is then
+started twice for one version — once by that event, once by release.yml's
+dispatch. Both collapse into the same concurrency group (`github.ref_name`
+normalises `refs/tags/v1.4.0` to `v1.4.0`, matching the dispatch input), so
+they serialise and the second run skips on "already on npm".
+
 ## Prerequisites (already configured)
 
 - Settings → Actions → General → **Allow GitHub Actions to create and approve

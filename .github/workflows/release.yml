@@ -25,6 +25,27 @@ jobs:
       - name: Create or update the release PR, and release on merge
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          # Prefer RELEASE_TOKEN when it exists, else fall back to GITHUB_TOKEN.
+          #
+          # A release PR opened by GITHUB_TOKEN is authored by
+          # `github-actions[bot]`, and every workflow run on such a PR is held
+          # at `action_required` with 0s duration — created but never started.
+          # Branch protection then sees the required checks as missing and
+          # reports the PR as BLOCKED, which is indistinguishable from "checks
+          # still pending". 1.3.1 sat unreleased for a day that way, and 1.4.0
+          # did the same.
+          #
+          # Verified 2026-07-31 over 100 PR runs: github-actions[bot] had 16
+          # runs at action_required, dependabot[bot] had 0 — so this is
+          # specific to the GITHUB_TOKEN actor, not a fork or contributor
+          # policy. A PR opened under any other identity is not gated.
+          #
+          # RELEASE_TOKEN may be either a fine-grained PAT or a GitHub App
+          # installation token; both need contents:write + pull_requests:write.
+          # Unset is safe: releases still work, they just need each run
+          # approving by hand.
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Everything below runs only on the push that merges the release PR.
       #
