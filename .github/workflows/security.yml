@@ -64,7 +64,7 @@ jobs:
         persist-credentials: false
     
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
+      uses: github/codeql-action/init@v4.37.4
       with:
         languages: javascript
         queries: security-extended
@@ -82,7 +82,7 @@ jobs:
       run: npm run build
     
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
+      uses: github/codeql-action/analyze@v4.37.4
 
   secret-scanning:
     name: Secret Scanning
@@ -152,7 +152,7 @@ jobs:
 
     - name: Run Hadolint
       if: steps.detect.outputs.found == 'true'
-      uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+      uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
       with:
         dockerfile: Dockerfile
         failure-threshold: warning
