@@ -1,5 +1,7 @@
 # Plex MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fniavasha%2Fplex-mcp-server.svg)](https://mcptoplist.com/server/glama%2Fniavasha%2Fplex-mcp-server)
+
 A **Model Context Protocol (MCP)** server that provides AI assistants with comprehensive access to your Plex Media Server, Sonarr, Radarr, and Trakt.tv — all from a single unified server.
 
 <a href="https://glama.ai/mcp/servers/@niavasha/plex-mcp-server">
