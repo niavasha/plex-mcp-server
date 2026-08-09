@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
+
+
+### Fixed
+
+* **deps:** resolve dependency vulnerabilities ([b04e933](https://github.com/niavasha/plex-mcp-server/commit/b04e933268fc43ea56d0788314b90a910e9289bc))
+
 ## [1.4.0](https://github.com/niavasha/plex-mcp-server/compare/v1.3.1...v1.4.0) (2026-08-02)
 
 
