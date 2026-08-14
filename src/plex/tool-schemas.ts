@@ -453,6 +453,30 @@ const REMOVE_FROM_WATCHLIST_SCHEMA = {
     required: ["ratingKey"],
   },
 };
+
+const MARK_WATCHED_SCHEMA = {
+  name: "mark_watched",
+  description: "Mark a Plex media item as watched (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The local Plex rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
+
+const MARK_UNWATCHED_SCHEMA = {
+  name: "mark_unwatched",
+  description: "Mark a Plex media item as unwatched (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The local Plex rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
 export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_LIBRARIES_SCHEMA,
   GET_LIBRARY_ITEMS_SCHEMA,
@@ -511,7 +535,7 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
 ];
 
 /** All Plex tool schemas */
-/** Mutative tools (9 tools) — registered only when opt-in is enabled */
+/** Mutative tools (11 tools) — registered only when opt-in is enabled */
 export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   UPDATE_METADATA_SCHEMA,
   UPDATE_METADATA_FROM_JSON_SCHEMA,
@@ -522,6 +546,8 @@ export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   DELETE_PLAYLIST_SCHEMA,
   ADD_TO_WATCHLIST_SCHEMA,
   REMOVE_FROM_WATCHLIST_SCHEMA,
+  MARK_WATCHED_SCHEMA,
+  MARK_UNWATCHED_SCHEMA,
 ];
 export const PLEX_TOOL_SCHEMAS = [
   ...PLEX_CORE_TOOL_SCHEMAS,

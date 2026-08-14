@@ -175,6 +175,14 @@ export class PlexClient implements PlexAPIClient {
     });
   }
 
+  async markAsUnwatched(ratingKey: string): Promise<void> {
+    validatePlexId(ratingKey, "ratingKey");
+    await this.makeRequest("/:/unscrobble", {
+      key: ratingKey,
+      identifier: "com.plexapp.plugins.library",
+    });
+  }
+
   async updateProgress(ratingKey: string, progress: number, userId?: number): Promise<void> {
     validatePlexId(ratingKey, "ratingKey");
     await this.makeRequest("/:/progress", {

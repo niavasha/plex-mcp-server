@@ -7,6 +7,8 @@ import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
 function createMockClient() {
   return {
     makeRequest: vi.fn(),
+    markAsWatched: vi.fn(),
+    markAsUnwatched: vi.fn(),
     getPlexTypeId: vi.fn((type: string) => {
       const ids: Record<string, number> = { movie: 1, show: 2, episode: 4 };
       return ids[type] || 1;
@@ -162,6 +164,52 @@ describe("PlexTools", () => {
 
       const result = parseResponse(await tools.getWatchlist());
       expect(result.watchlist[0].summary.length).toBeLessThanOrEqual(SUMMARY_PREVIEW_LENGTH + 3);
+    });
+  });
+
+  describe("watch-state actions", () => {
+    const originalMutativeEnv = process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+    beforeEach(() => {
+      process.env.PLEX_ENABLE_MUTATIVE_OPS = "true";
+    });
+
+    afterEach(() => {
+      if (originalMutativeEnv === undefined) {
+        delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+      } else {
+        process.env.PLEX_ENABLE_MUTATIVE_OPS = originalMutativeEnv;
+      }
+    });
+
+    it("marks an item watched through the dedicated client operation", async () => {
+      const result = parseResponse(await tools.markWatched("42"));
+
+      expect(client.markAsWatched).toHaveBeenCalledWith("42");
+      expect(result).toEqual({ updated: true, watched: true, ratingKey: "42" });
+    });
+
+    it("marks an item unwatched through the dedicated client operation", async () => {
+      const result = parseResponse(await tools.markUnwatched("42"));
+
+      expect(client.markAsUnwatched).toHaveBeenCalledWith("42");
+      expect(result).toEqual({ updated: true, watched: false, ratingKey: "42" });
+    });
+
+    it("keeps both actions behind the mutative-operations opt-in", async () => {
+      delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+      await expect(tools.markWatched("42")).rejects.toThrow(/PLEX_ENABLE_MUTATIVE_OPS/);
+      await expect(tools.markUnwatched("42")).rejects.toThrow(/PLEX_ENABLE_MUTATIVE_OPS/);
+      expect(client.markAsWatched).not.toHaveBeenCalled();
+      expect(client.markAsUnwatched).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid local rating keys before calling Plex", async () => {
+      await expect(tools.markWatched("not-a-key")).rejects.toThrow(/numeric Plex ID/);
+      await expect(tools.markUnwatched("not-a-key")).rejects.toThrow(/numeric Plex ID/);
+      expect(client.markAsWatched).not.toHaveBeenCalled();
+      expect(client.markAsUnwatched).not.toHaveBeenCalled();
     });
   });
 

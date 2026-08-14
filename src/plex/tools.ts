@@ -938,6 +938,20 @@ export class PlexTools {
     );
   }
 
+  async markWatched(ratingKey: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("mark_watched");
+    validatePlexId(ratingKey, "ratingKey");
+    await this.client.markAsWatched(ratingKey);
+    return jsonResponse({ updated: true, watched: true, ratingKey });
+  }
+
+  async markUnwatched(ratingKey: string): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("mark_unwatched");
+    validatePlexId(ratingKey, "ratingKey");
+    await this.client.markAsUnwatched(ratingKey);
+    return jsonResponse({ updated: true, watched: false, ratingKey });
+  }
+
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
     // Primary: use watch history endpoint
     try {

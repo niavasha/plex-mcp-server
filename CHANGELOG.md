@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- Add opt-in `mark_watched` and `mark_unwatched` tools for changing Plex playback state.
+
 ## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
 
 
