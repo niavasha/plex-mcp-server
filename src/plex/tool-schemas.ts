@@ -432,11 +432,11 @@ const DELETE_PLAYLIST_SCHEMA = {
 
 const ADD_TO_WATCHLIST_SCHEMA = {
   name: "add_to_watchlist",
-  description: "Add a media item to watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  description: "Add a local Plex movie or show to the account watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
   inputSchema: {
     type: "object" as const,
     properties: {
-      ratingKey: { type: "string", description: "The rating key of the media item" },
+      ratingKey: { type: "string", description: "Local Plex rating key for a matched movie or show" },
     },
     required: ["ratingKey"],
   },
@@ -444,13 +444,17 @@ const ADD_TO_WATCHLIST_SCHEMA = {
 
 const REMOVE_FROM_WATCHLIST_SCHEMA = {
   name: "remove_from_watchlist",
-  description: "Remove a media item from watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  description: "Remove a movie or show from the account watchlist by global Plex GUID or local rating key (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
   inputSchema: {
     type: "object" as const,
     properties: {
-      ratingKey: { type: "string", description: "The rating key of the media item" },
+      plexGuid: { type: "string", description: "Global Plex GUID returned by get_watchlist, such as plex://movie/abc123" },
+      ratingKey: { type: "string", description: "Local numeric Plex rating key; resolved to a global GUID before removal" },
     },
-    required: ["ratingKey"],
+    oneOf: [
+      { required: ["plexGuid"], not: { required: ["ratingKey"] } },
+      { required: ["ratingKey"], not: { required: ["plexGuid"] } },
+    ],
   },
 };
 export const PLEX_CORE_TOOL_SCHEMAS = [

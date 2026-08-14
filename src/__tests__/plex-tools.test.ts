@@ -7,6 +7,7 @@ import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
 function createMockClient() {
   return {
     makeRequest: vi.fn(),
+    makeDiscoverRequest: vi.fn(),
     getPlexTypeId: vi.fn((type: string) => {
       const ids: Record<string, number> = { movie: 1, show: 2, episode: 4 };
       return ids[type] || 1;
@@ -151,17 +152,122 @@ describe("PlexTools", () => {
   });
 
   describe("getWatchlist", () => {
-    it("truncates summaries", async () => {
-      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+    it("reads the account watchlist from Discover and exposes its global GUID", async () => {
+      (client.makeDiscoverRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
         MediaContainer: {
           Metadata: [
-            { ratingKey: "1", title: "Watchlist Item", type: "movie", year: 2024, summary: LONG_SUMMARY, addedAt: 1000 },
+            {
+              ratingKey: "global-1",
+              guid: "plex://movie/global-1",
+              title: "Watchlist Item",
+              type: "movie",
+              year: 2024,
+              summary: LONG_SUMMARY,
+              watchlistedAt: 1000,
+            },
           ],
         },
       });
 
       const result = parseResponse(await tools.getWatchlist());
       expect(result.watchlist[0].summary.length).toBeLessThanOrEqual(SUMMARY_PREVIEW_LENGTH + 3);
+      expect(result.watchlist[0]).toMatchObject({
+        ratingKey: "global-1",
+        guid: "plex://movie/global-1",
+        addedAt: 1000,
+      });
+      expect(client.makeDiscoverRequest).toHaveBeenCalledWith(
+        "/library/sections/watchlist/all",
+        { includeCollections: 1, includeExternalMedia: 1 },
+        "GET"
+      );
+      expect(client.makeRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("watchlist mutations", () => {
+    const ORIGINAL_MUTATIVE_ENV = process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+    beforeEach(() => {
+      process.env.PLEX_ENABLE_MUTATIVE_OPS = "true";
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_MUTATIVE_ENV === undefined) {
+        delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+      } else {
+        process.env.PLEX_ENABLE_MUTATIVE_OPS = ORIGINAL_MUTATIVE_ENV;
+      }
+    });
+
+    it("adds a local item through Discover using its Plex GUID suffix", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ guid: "plex://movie/abc123" }] },
+      });
+      (client.makeDiscoverRequest as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
+      const result = parseResponse(await tools.addToWatchlist("42"));
+
+      expect(client.makeDiscoverRequest).toHaveBeenCalledWith(
+        "/actions/addToWatchlist",
+        { ratingKey: "abc123" },
+        "PUT"
+      );
+      expect(result).toMatchObject({ updated: true, ratingKey: "42", plexGuid: "plex://movie/abc123" });
+    });
+
+    it("removes an account watchlist item directly by global Plex GUID", async () => {
+      (client.makeDiscoverRequest as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
+      const result = parseResponse(
+        await tools.removeFromWatchlist({ plexGuid: "plex://show/show123" })
+      );
+
+      expect(client.makeDiscoverRequest).toHaveBeenCalledWith(
+        "/actions/removeFromWatchlist",
+        { ratingKey: "show123" },
+        "PUT"
+      );
+      expect(client.makeRequest).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ updated: true, plexGuid: "plex://show/show123" });
+    });
+
+    it("keeps local rating keys as a compatibility path for removal", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ guid: "plex://movie/abc123" }] },
+      });
+      (client.makeDiscoverRequest as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
+      await tools.removeFromWatchlist({ ratingKey: "42" });
+
+      expect(client.makeRequest).toHaveBeenCalledWith("/library/metadata/42");
+      expect(client.makeDiscoverRequest).toHaveBeenCalledWith(
+        "/actions/removeFromWatchlist",
+        { ratingKey: "abc123" },
+        "PUT"
+      );
+    });
+
+    it("keeps the legacy direct string argument for library consumers", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ guid: "plex://movie/legacy123" }] },
+      });
+      (client.makeDiscoverRequest as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
+      await tools.removeFromWatchlist("42");
+
+      expect(client.makeDiscoverRequest).toHaveBeenCalledWith(
+        "/actions/removeFromWatchlist",
+        { ratingKey: "legacy123" },
+        "PUT"
+      );
+    });
+
+    it("rejects legacy or malformed global GUIDs before calling Discover", async () => {
+      await expect(
+        tools.removeFromWatchlist({ plexGuid: "imdb://tt1234567" })
+      ).rejects.toThrow(/Plex Movie or Plex TV Series agent/i);
+      expect(client.makeDiscoverRequest).not.toHaveBeenCalled();
     });
   });
 

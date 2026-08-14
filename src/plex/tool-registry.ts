@@ -257,7 +257,10 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
   ));
 
   registry.register("remove_from_watchlist", guardMutativeOp((args) =>
-    tools.removeFromWatchlist(args.ratingKey as string)
+    tools.removeFromWatchlist({
+      ratingKey: args.ratingKey as string | undefined,
+      plexGuid: args.plexGuid as string | undefined,
+    })
   ));
 
   return registry;
