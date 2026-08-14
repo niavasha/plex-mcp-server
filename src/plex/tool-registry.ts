@@ -260,5 +260,9 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     tools.removeFromWatchlist(args.ratingKey as string)
   ));
 
+  registry.register("rate_media", guardMutativeOp((args) =>
+    tools.rateMedia(args.ratingKey as string, args.rating as number)
+  ));
+
   return registry;
 }

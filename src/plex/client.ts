@@ -175,6 +175,19 @@ export class PlexClient implements PlexAPIClient {
     });
   }
 
+  async rateMedia(ratingKey: string, rating: number): Promise<void> {
+    validatePlexId(ratingKey, "ratingKey");
+    await this.makeRequest(
+      "/:/rate",
+      {
+        key: ratingKey,
+        identifier: "com.plexapp.plugins.library",
+        rating,
+      },
+      "PUT"
+    );
+  }
+
   async updateProgress(ratingKey: string, progress: number, userId?: number): Promise<void> {
     validatePlexId(ratingKey, "ratingKey");
     await this.makeRequest("/:/progress", {

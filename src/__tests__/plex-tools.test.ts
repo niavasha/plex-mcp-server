@@ -7,6 +7,7 @@ import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
 function createMockClient() {
   return {
     makeRequest: vi.fn(),
+    rateMedia: vi.fn(),
     getPlexTypeId: vi.fn((type: string) => {
       const ids: Record<string, number> = { movie: 1, show: 2, episode: 4 };
       return ids[type] || 1;
@@ -162,6 +163,49 @@ describe("PlexTools", () => {
 
       const result = parseResponse(await tools.getWatchlist());
       expect(result.watchlist[0].summary.length).toBeLessThanOrEqual(SUMMARY_PREVIEW_LENGTH + 3);
+    });
+  });
+
+  describe("media rating action", () => {
+    const originalMutativeEnv = process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+    beforeEach(() => {
+      process.env.PLEX_ENABLE_MUTATIVE_OPS = "true";
+    });
+
+    afterEach(() => {
+      if (originalMutativeEnv === undefined) {
+        delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+      } else {
+        process.env.PLEX_ENABLE_MUTATIVE_OPS = originalMutativeEnv;
+      }
+    });
+
+    it.each([0, 8.5, 10])("sets a valid Plex user rating of %s", async (rating) => {
+      const result = parseResponse(await tools.rateMedia("42", rating));
+
+      expect(client.rateMedia).toHaveBeenCalledWith("42", rating);
+      expect(result).toEqual({ updated: true, ratingKey: "42", rating });
+    });
+
+    it.each([-0.1, 10.1, Number.NaN, Number.POSITIVE_INFINITY])(
+      "rejects an invalid Plex user rating of %s",
+      async (rating) => {
+        await expect(tools.rateMedia("42", rating)).rejects.toThrow(/between 0 and 10/i);
+        expect(client.rateMedia).not.toHaveBeenCalled();
+      }
+    );
+
+    it("keeps rating behind the mutative-operations opt-in", async () => {
+      delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+      await expect(tools.rateMedia("42", 8)).rejects.toThrow(/PLEX_ENABLE_MUTATIVE_OPS/);
+      expect(client.rateMedia).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid local rating keys before calling Plex", async () => {
+      await expect(tools.rateMedia("not-a-key", 8)).rejects.toThrow(/numeric Plex ID/);
+      expect(client.rateMedia).not.toHaveBeenCalled();
     });
   });
 

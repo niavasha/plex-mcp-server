@@ -453,6 +453,24 @@ const REMOVE_FROM_WATCHLIST_SCHEMA = {
     required: ["ratingKey"],
   },
 };
+
+const RATE_MEDIA_SCHEMA = {
+  name: "rate_media",
+  description: "Set the user's Plex rating for a media item (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The local Plex rating key of the media item" },
+      rating: {
+        type: "number",
+        description: "User rating from 0 to 10",
+        minimum: 0,
+        maximum: 10,
+      },
+    },
+    required: ["ratingKey", "rating"],
+  },
+};
 export const PLEX_CORE_TOOL_SCHEMAS = [
   GET_LIBRARIES_SCHEMA,
   GET_LIBRARY_ITEMS_SCHEMA,
@@ -511,7 +529,7 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
 ];
 
 /** All Plex tool schemas */
-/** Mutative tools (9 tools) — registered only when opt-in is enabled */
+/** Mutative tools (10 tools) — registered only when opt-in is enabled */
 export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   UPDATE_METADATA_SCHEMA,
   UPDATE_METADATA_FROM_JSON_SCHEMA,
@@ -522,6 +540,7 @@ export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   DELETE_PLAYLIST_SCHEMA,
   ADD_TO_WATCHLIST_SCHEMA,
   REMOVE_FROM_WATCHLIST_SCHEMA,
+  RATE_MEDIA_SCHEMA,
 ];
 export const PLEX_TOOL_SCHEMAS = [
   ...PLEX_CORE_TOOL_SCHEMAS,

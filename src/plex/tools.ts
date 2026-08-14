@@ -938,6 +938,16 @@ export class PlexTools {
     );
   }
 
+  async rateMedia(ratingKey: string, rating: number): Promise<MCPResponse> {
+    this.requireMutativeOpsEnabled("rate_media");
+    validatePlexId(ratingKey, "ratingKey");
+    if (!Number.isFinite(rating) || rating < 0 || rating > 10) {
+      throw new McpError(ErrorCode.InvalidRequest, "rating must be between 0 and 10");
+    }
+    await this.client.rateMedia(ratingKey, rating);
+    return jsonResponse({ updated: true, ratingKey, rating });
+  }
+
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
     // Primary: use watch history endpoint
     try {

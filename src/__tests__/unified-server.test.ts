@@ -31,10 +31,10 @@ describe("Unified server — tool registration", () => {
     expect(new Set(names).size).toBe(46);
   });
 
-  it("registers exactly 55 tools with mutative ops", () => {
+  it("registers exactly 56 tools with mutative ops", () => {
     const names = allSchemasWithMutative.map((s) => s.name);
-    expect(names).toHaveLength(55);
-    expect(new Set(names).size).toBe(55);
+    expect(names).toHaveLength(56);
+    expect(new Set(names).size).toBe(56);
   });
 
   it("includes plex core tools", () => {
@@ -79,7 +79,17 @@ describe("Unified server — tool registration", () => {
     expect(names).toContain("update_metadata");
     expect(names).toContain("create_playlist");
     expect(names).toContain("add_to_watchlist");
+    expect(names).toContain("rate_media");
     expect(names).toContain("delete_playlist");
+  });
+
+  it("advertises the supported Plex user-rating range", () => {
+    const schema = PLEX_MUTATIVE_TOOL_SCHEMAS.find((tool) => tool.name === "rate_media");
+    const properties = schema?.inputSchema.properties;
+    const rating = properties && "rating" in properties ? properties.rating : undefined;
+
+    expect(rating).toMatchObject({ type: "number", minimum: 0, maximum: 10 });
+    expect(schema?.inputSchema.required).toEqual(["ratingKey", "rating"]);
   });
 
   it("every tool schema has name and inputSchema", () => {
@@ -140,6 +150,7 @@ describe("Unified server — dispatch routing", () => {
     expect(plexRegistry.has("search_media")).toBe(true);
     expect(plexRegistry.has("get_fully_watched")).toBe(true);
     expect(plexRegistry.has("update_metadata")).toBe(true);
+    expect(plexRegistry.has("rate_media")).toBe(true);
   });
 
   it("trakt registry owns trakt tools", () => {

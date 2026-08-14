@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- Add an opt-in `rate_media` tool for setting a Plex user's media rating.
+
 ## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
 
 

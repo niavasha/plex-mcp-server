@@ -97,6 +97,7 @@ describe("safe-by-default classification", () => {
       "create_playlist",
       "add_to_playlist",
       "add_to_watchlist",
+      "rate_media",
       "export_library",
       "sonarr_add_series",
       "radarr_add_movie",
