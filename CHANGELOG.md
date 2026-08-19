@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Route Universal Watchlist reads and mutations through Plex Discover using global Plex GUIDs instead of unsupported local Plex Media Server endpoints.
+
 ## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
 
 

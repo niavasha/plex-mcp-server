@@ -171,7 +171,7 @@ Once configured, you can ask your AI assistant:
 | `get_editable_fields` | Show editable fields and available tags for an item |
 | `get_playlists` | List all Plex playlists |
 | `get_playlist_items` | List items in a playlist |
-| `get_watchlist` | Get current Plex watchlist |
+| `get_watchlist` | Get the current account Watchlist from Plex Discover |
 | `get_recently_watched` | Recently watched content |
 | `get_watch_history` | Detailed watch sessions |
 | `get_fully_watched` | Fully watched movies/shows |
@@ -195,8 +195,8 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 | `remove_from_playlist` | Remove an item from a playlist |
 | `clear_playlist` | Preview and optionally clear all items from a playlist (`confirm=true`) |
 | `delete_playlist` | Delete a playlist without deleting the underlying media |
-| `add_to_watchlist` | Add a media item to the Plex watchlist |
-| `remove_from_watchlist` | Remove a media item from the Plex watchlist |
+| `add_to_watchlist` | Add a matched local movie or show to the account Watchlist |
+| `remove_from_watchlist` | Remove an account Watchlist item by its global Plex GUID or local rating key |
 
 ### Sonarr Tools (8 tools)
 
