@@ -324,36 +324,24 @@ export class PlexTools {
   }
 
   async getWatchlist(): Promise<MCPResponse> {
-    const endpoints = ["/library/sections/watchlist/all", "/library/metadata/watchlist"];
-    const errors: string[] = [];
-
-    for (const endpoint of endpoints) {
-      try {
-        const data = await this.client.makeRequest(endpoint);
-        const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-        const watchlist = container.MediaContainer?.Metadata || [];
-
-        return jsonResponse({
-          watchlist: watchlist.map((item) => ({
-            ratingKey: item.ratingKey,
-            title: item.title,
-            type: item.type,
-            year: item.year,
-            summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
-            addedAt: item.addedAt,
-          })),
-          ...(endpoint !== endpoints[0] ? { note: "Retrieved using fallback watchlist endpoint" } : {}),
-        });
-      } catch (error) {
-        errors.push(`${endpoint}: ${this.getErrorMessage(error)}`);
-      }
-    }
-
+    const data = await this.client.makeDiscoverRequest(
+      "/library/sections/watchlist/all",
+      { includeCollections: 1, includeExternalMedia: 1 },
+      "GET"
+    );
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const watchlist = container.MediaContainer?.Metadata || [];
     return jsonResponse({
-      watchlist: [],
-      error: "Watchlist not available",
-      message: "Your Plex server may not have the watchlist feature enabled or accessible through the API",
-      errors,
+      watchlist: watchlist.map((item) => ({
+        ratingKey: item.ratingKey,
+        guid: item.guid,
+        title: item.title,
+        type: item.type,
+        year: item.year,
+        summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
+        addedAt: item.watchlistedAt ?? item.addedAt,
+      })),
+      source: "Plex Discover account watchlist",
     });
   }
 
@@ -891,51 +879,42 @@ export class PlexTools {
   async addToWatchlist(ratingKey: string): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("add_to_watchlist");
     validatePlexId(ratingKey, "ratingKey");
+    const plexGuid = await this.getPlexGuid(ratingKey);
 
-    const attempts = [
-      { endpoint: "/actions/addToWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
-      { endpoint: `/library/metadata/${ratingKey}/watchlist`, method: "PUT", params: {} as Record<string, string | number> },
-    ];
-    const errors: string[] = [];
-
-    for (const attempt of attempts) {
-      try {
-        await this.client.makeRequest(attempt.endpoint, attempt.params, attempt.method);
-        return jsonResponse({ updated: true, action: "add_to_watchlist", ratingKey, endpoint: attempt.endpoint });
-      } catch (error) {
-        errors.push(`${attempt.method} ${attempt.endpoint}: ${this.getErrorMessage(error)}`);
-      }
-    }
-
-    throw new McpError(
-      ErrorCode.InternalError,
-      `Unable to add ${ratingKey} to watchlist. Attempts: ${errors.join(" | ")}`
+    await this.client.makeDiscoverRequest(
+      "/actions/addToWatchlist",
+      { ratingKey: this.getGlobalRatingKey(plexGuid) },
+      "PUT"
     );
+    return jsonResponse({ updated: true, action: "add_to_watchlist", ratingKey, plexGuid });
   }
 
-  async removeFromWatchlist(ratingKey: string): Promise<MCPResponse> {
+  async removeFromWatchlist(
+    input: string | { ratingKey?: string; plexGuid?: string }
+  ): Promise<MCPResponse> {
     this.requireMutativeOpsEnabled("remove_from_watchlist");
-    validatePlexId(ratingKey, "ratingKey");
-
-    const attempts = [
-      { endpoint: "/actions/removeFromWatchlist", method: "GET", params: { ratingKey } as Record<string, string | number> },
-      { endpoint: `/library/metadata/${ratingKey}/watchlist`, method: "DELETE", params: {} as Record<string, string | number> },
-    ];
-    const errors: string[] = [];
-
-    for (const attempt of attempts) {
-      try {
-        await this.client.makeRequest(attempt.endpoint, attempt.params, attempt.method);
-        return jsonResponse({ updated: true, action: "remove_from_watchlist", ratingKey, endpoint: attempt.endpoint });
-      } catch (error) {
-        errors.push(`${attempt.method} ${attempt.endpoint}: ${this.getErrorMessage(error)}`);
-      }
+    const normalized = typeof input === "string" ? { ratingKey: input } : input;
+    if (Boolean(normalized.ratingKey) === Boolean(normalized.plexGuid)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Provide exactly one of ratingKey or plexGuid"
+      );
     }
+    const plexGuid = normalized.plexGuid
+      ? this.validatePlexGuid(normalized.plexGuid)
+      : await this.getPlexGuid(validatePlexId(normalized.ratingKey, "ratingKey"));
 
-    throw new McpError(
-      ErrorCode.InternalError,
-      `Unable to remove ${ratingKey} from watchlist. Attempts: ${errors.join(" | ")}`
+    await this.client.makeDiscoverRequest(
+      "/actions/removeFromWatchlist",
+      { ratingKey: this.getGlobalRatingKey(plexGuid) },
+      "PUT"
     );
+    return jsonResponse({
+      updated: true,
+      action: "remove_from_watchlist",
+      ratingKey: normalized.ratingKey,
+      plexGuid,
+    });
   }
 
   async markWatched(ratingKey: string): Promise<MCPResponse> {
@@ -1466,6 +1445,26 @@ export class PlexTools {
     }
 
     return { item, libraryKey: String(libraryKey) };
+  }
+
+  private async getPlexGuid(ratingKey: string): Promise<string> {
+    const data = await this.client.makeRequest(`/library/metadata/${ratingKey}`);
+    const container = data as { MediaContainer?: { Metadata?: Array<Record<string, unknown>> } };
+    return this.validatePlexGuid(container.MediaContainer?.Metadata?.[0]?.guid);
+  }
+
+  private validatePlexGuid(value: unknown): string {
+    if (typeof value !== "string" || !/^plex:\/\/(movie|show)\/[^/?#]+$/.test(value)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Watchlist items must be matched with the Plex Movie or Plex TV Series agent"
+      );
+    }
+    return value;
+  }
+
+  private getGlobalRatingKey(plexGuid: string): string {
+    return plexGuid.slice(plexGuid.lastIndexOf("/") + 1);
   }
 
   private async setPosterFromUrl(
