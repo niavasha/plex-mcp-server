@@ -26,13 +26,13 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/build ./build
 
-# Drop privileges — the node image ships an unprivileged `node` user.
-USER node
+# Drop privileges — the node image ships an unprivileged `node` user (UID 1000).
+USER 1000
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.MCP_PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.MCP_PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
 ENTRYPOINT ["node", "build/plex-mcp-server.js"]
 CMD ["--transport", "http"]

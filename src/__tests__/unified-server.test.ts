@@ -91,7 +91,7 @@ describe("Unified server — tool registration", () => {
     const rating = properties && "rating" in properties ? properties.rating : undefined;
 
     expect(rating).toMatchObject({ type: "number", minimum: 0, maximum: 10 });
-    expect(schema?.inputSchema.required).toEqual(["ratingKey", "rating"]);
+    expect((schema?.inputSchema as any).required).toEqual(["ratingKey", "rating"]);
   });
 
   it("every tool schema has name and inputSchema", () => {
