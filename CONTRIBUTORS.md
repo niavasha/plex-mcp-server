@@ -39,6 +39,11 @@ Listed in order of first contribution.
   every tool looking equally risky to an approval UI, and got the per-tool
   classification right first time.
 
+- **Jaime Guajardo** ([@jamesmgg](https://github.com/jamesmgg)) — routed Universal Watchlist
+  reads and mutations through Plex Discover using global Plex GUIDs ([#129](https://github.com/niavasha/plex-mcp-server/pull/129)),
+  added the opt-in `mark_watched` and `mark_unwatched` playback state tools ([#130](https://github.com/niavasha/plex-mcp-server/pull/130)),
+  and designed the opt-in `rate_media` tool to rate movies and shows ([#131](https://github.com/niavasha/plex-mcp-server/pull/131)).
+
 ## Adding yourself
 
 If you've had a change merged and you're not listed here, that's an oversight
