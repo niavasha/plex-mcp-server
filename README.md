@@ -351,6 +351,11 @@ Merged contributors are credited in [CONTRIBUTORS.md](CONTRIBUTORS.md). Please u
 - Check the `PLEX_URL` in your environment config
 - Ensure the port (usually 32400) is correct
 
+**Host unreachable (`EHOSTUNREACH` / connect errors) on macOS:**
+- On macOS Sequoia, Sonoma, or later, connections to local IP addresses (like `10.0.0.10` or `192.168.1.50`) may be blocked by **Local Network Privacy** settings.
+- **Workaround 1:** Try connecting using the local hostname (e.g., `plex.local` or your Plex server name) rather than the direct IP address. Alternatively, use a Plex `*.plex.direct` domain.
+- **Workaround 2:** Go to **System Settings -> Privacy & Security -> Local Network** on your Mac and ensure that the MCP client (e.g., Claude Desktop, Terminal, or VS Code) is enabled and has permission to access the local network.
+
 **Authentication errors:**
 - Verify your Plex token is correct
 - Check token permissions in Plex settings
