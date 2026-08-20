@@ -13,6 +13,26 @@ All notable changes to this project will be documented in this file.
 
 - Route Universal Watchlist reads and mutations through Plex Discover using global Plex GUIDs instead of unsupported local Plex Media Server endpoints.
 
+## [1.5.0](https://github.com/niavasha/plex-mcp-server/compare/v1.4.1...v1.5.0) (2026-08-20)
+
+
+### Added
+
+* add Plex media rating tool ([1f6cb40](https://github.com/niavasha/plex-mcp-server/commit/1f6cb40e4c3400b1c4c1c71dd15e96d9389c8d23))
+* add Plex watch-state tools ([021b1b5](https://github.com/niavasha/plex-mcp-server/commit/021b1b524db071e8d0ccd6448817788ca5431f3b))
+
+
+### Fixed
+
+* resolve compilation and Dockerfile security warnings in CI ([8e4cf62](https://github.com/niavasha/plex-mcp-server/commit/8e4cf62823bcfe193142ca7f0e491bfbd66048ba))
+* route account Watchlist through Plex Discover ([a8f6c02](https://github.com/niavasha/plex-mcp-server/commit/a8f6c02ceb9846998577adc766d10517fdb76965))
+
+
+### Documentation
+
+* add EHOSTUNREACH troubleshooting for macOS ([02b3f93](https://github.com/niavasha/plex-mcp-server/commit/02b3f93ffacb7230fa2799a24108234924e8adce))
+* add Jaime Guajardo to contributors list ([e3a1756](https://github.com/niavasha/plex-mcp-server/commit/e3a17569ecfd64c98f921d106d503fe1bd635aca))
+
 ## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
 
 
