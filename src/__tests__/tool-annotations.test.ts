@@ -98,6 +98,8 @@ describe("safe-by-default classification", () => {
       "add_to_playlist",
       "add_to_watchlist",
       "rate_media",
+      "mark_watched",
+      "mark_unwatched",
       "export_library",
       "sonarr_add_series",
       "radarr_add_movie",

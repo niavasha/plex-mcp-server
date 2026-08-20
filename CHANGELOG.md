@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add an opt-in `rate_media` tool for setting a Plex user's media rating.
+- Add opt-in `mark_watched` and `mark_unwatched` tools for changing Plex playback state.
+
+### Fixed
+
+- Route Universal Watchlist reads and mutations through Plex Discover using global Plex GUIDs instead of unsupported local Plex Media Server endpoints.
 
 ## [1.4.1](https://github.com/niavasha/plex-mcp-server/compare/v1.4.0...v1.4.1) (2026-08-08)
 

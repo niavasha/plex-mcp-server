@@ -11,10 +11,16 @@ import { PlexAPIClient } from "../trakt/sync.js";
 import { PlexMovie, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
 import { validatePlexId } from "../shared/utils.js";
 
+const PLEX_DISCOVER_BASE_URL = "https://discover.provider.plex.tv";
+
 export class PlexClient implements PlexAPIClient {
   constructor(private config: PlexConfig) {
     // Strip trailing slashes to prevent double-slash in URLs
-    this.config = { ...config, baseUrl: config.baseUrl.replace(/\/+$/, "") };
+    this.config = {
+      ...config,
+      baseUrl: config.baseUrl.replace(/\/+$/, ""),
+      clientIdentifier: config.clientIdentifier || "plex-mcp-server",
+    };
   }
 
   async makeRequest(endpoint: string, params: Record<string, string | number> = {}, method: string = "GET"): Promise<Record<string, unknown>> {
@@ -29,6 +35,24 @@ export class PlexClient implements PlexAPIClient {
     };
 
     const response = await axios(url, axiosConfig);
+    return response.data;
+  }
+
+  async makeDiscoverRequest(
+    endpoint: string,
+    params: Record<string, string | number> = {},
+    method: string = "GET"
+  ): Promise<Record<string, unknown>> {
+    const response = await axios(`${PLEX_DISCOVER_BASE_URL}${endpoint}`, {
+      method,
+      headers: {
+        "X-Plex-Token": this.config.token,
+        "X-Plex-Client-Identifier": this.config.clientIdentifier,
+        "X-Plex-Product": "plex-mcp-server",
+        Accept: "application/json",
+      },
+      params,
+    });
     return response.data;
   }
 
@@ -186,6 +210,14 @@ export class PlexClient implements PlexAPIClient {
       },
       "PUT"
     );
+  }
+
+  async markAsUnwatched(ratingKey: string): Promise<void> {
+    validatePlexId(ratingKey, "ratingKey");
+    await this.makeRequest("/:/unscrobble", {
+      key: ratingKey,
+      identifier: "com.plexapp.plugins.library",
+    });
   }
 
   async updateProgress(ratingKey: string, progress: number, userId?: number): Promise<void> {

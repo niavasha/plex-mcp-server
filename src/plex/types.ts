@@ -5,6 +5,7 @@
 export interface PlexConfig {
   baseUrl: string;
   token: string;
+  clientIdentifier?: string;
 }
 
 export interface MCPResponse {

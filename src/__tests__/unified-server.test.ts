@@ -31,10 +31,10 @@ describe("Unified server — tool registration", () => {
     expect(new Set(names).size).toBe(46);
   });
 
-  it("registers exactly 56 tools with mutative ops", () => {
+  it("registers exactly 58 tools with mutative ops", () => {
     const names = allSchemasWithMutative.map((s) => s.name);
-    expect(names).toHaveLength(56);
-    expect(new Set(names).size).toBe(56);
+    expect(names).toHaveLength(58);
+    expect(new Set(names).size).toBe(58);
   });
 
   it("includes plex core tools", () => {
@@ -80,6 +80,8 @@ describe("Unified server — tool registration", () => {
     expect(names).toContain("create_playlist");
     expect(names).toContain("add_to_watchlist");
     expect(names).toContain("rate_media");
+    expect(names).toContain("mark_watched");
+    expect(names).toContain("mark_unwatched");
     expect(names).toContain("delete_playlist");
   });
 
@@ -151,6 +153,30 @@ describe("Unified server — dispatch routing", () => {
     expect(plexRegistry.has("get_fully_watched")).toBe(true);
     expect(plexRegistry.has("update_metadata")).toBe(true);
     expect(plexRegistry.has("rate_media")).toBe(true);
+    expect(plexRegistry.has("mark_watched")).toBe(true);
+    expect(plexRegistry.has("mark_unwatched")).toBe(true);
+  });
+
+  it("passes either global GUIDs or local rating keys to watchlist removal", async () => {
+    const originalMutative = process.env.PLEX_ENABLE_MUTATIVE_OPS;
+    process.env.PLEX_ENABLE_MUTATIVE_OPS = "true";
+    const remove = vi
+      .spyOn(PlexTools.prototype, "removeFromWatchlist")
+      .mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+
+    try {
+      await plexRegistry.handle("remove_from_watchlist", {
+        plexGuid: "plex://movie/global123",
+      });
+      expect(remove).toHaveBeenCalledWith({
+        plexGuid: "plex://movie/global123",
+        ratingKey: undefined,
+      });
+    } finally {
+      remove.mockRestore();
+      if (originalMutative === undefined) delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+      else process.env.PLEX_ENABLE_MUTATIVE_OPS = originalMutative;
+    }
   });
 
   it("trakt registry owns trakt tools", () => {

@@ -432,11 +432,11 @@ const DELETE_PLAYLIST_SCHEMA = {
 
 const ADD_TO_WATCHLIST_SCHEMA = {
   name: "add_to_watchlist",
-  description: "Add a media item to watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  description: "Add a local Plex movie or show to the account watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
   inputSchema: {
     type: "object" as const,
     properties: {
-      ratingKey: { type: "string", description: "The rating key of the media item" },
+      ratingKey: { type: "string", description: "Local Plex rating key for a matched movie or show" },
     },
     required: ["ratingKey"],
   },
@@ -444,11 +444,39 @@ const ADD_TO_WATCHLIST_SCHEMA = {
 
 const REMOVE_FROM_WATCHLIST_SCHEMA = {
   name: "remove_from_watchlist",
-  description: "Remove a media item from watchlist (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  description: "Remove a movie or show from the account watchlist by global Plex GUID or local rating key (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
   inputSchema: {
     type: "object" as const,
     properties: {
-      ratingKey: { type: "string", description: "The rating key of the media item" },
+      plexGuid: { type: "string", description: "Global Plex GUID returned by get_watchlist, such as plex://movie/abc123" },
+      ratingKey: { type: "string", description: "Local numeric Plex rating key; resolved to a global GUID before removal" },
+    },
+    oneOf: [
+      { required: ["plexGuid"], not: { required: ["ratingKey"] } },
+      { required: ["ratingKey"], not: { required: ["plexGuid"] } },
+    ],
+  },
+};
+
+const MARK_WATCHED_SCHEMA = {
+  name: "mark_watched",
+  description: "Mark a Plex media item as watched (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The local Plex rating key of the media item" },
+    },
+    required: ["ratingKey"],
+  },
+};
+
+const MARK_UNWATCHED_SCHEMA = {
+  name: "mark_unwatched",
+  description: "Mark a Plex media item as unwatched (requires PLEX_ENABLE_MUTATIVE_OPS=true)",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      ratingKey: { type: "string", description: "The local Plex rating key of the media item" },
     },
     required: ["ratingKey"],
   },
@@ -529,7 +557,7 @@ const PLEX_EXTENDED_TOOL_SCHEMAS = [
 ];
 
 /** All Plex tool schemas */
-/** Mutative tools (10 tools) — registered only when opt-in is enabled */
+/** Mutative tools (12 tools) — registered only when opt-in is enabled */
 export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   UPDATE_METADATA_SCHEMA,
   UPDATE_METADATA_FROM_JSON_SCHEMA,
@@ -541,6 +569,8 @@ export const PLEX_MUTATIVE_TOOL_SCHEMAS = [
   ADD_TO_WATCHLIST_SCHEMA,
   REMOVE_FROM_WATCHLIST_SCHEMA,
   RATE_MEDIA_SCHEMA,
+  MARK_WATCHED_SCHEMA,
+  MARK_UNWATCHED_SCHEMA,
 ];
 export const PLEX_TOOL_SCHEMAS = [
   ...PLEX_CORE_TOOL_SCHEMAS,
