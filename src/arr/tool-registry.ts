@@ -5,6 +5,7 @@
 
 import { ToolRegistry } from "../plex/tool-registry.js";
 import { ArrMCPFunctions } from "./mcp-functions.js";
+import { formatToolPayload } from "../shared/output-format.js";
 
 export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegistry {
   const registry = new ToolRegistry();
@@ -122,5 +123,5 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
 }
 
 function wrapResponse(data: Record<string, unknown>) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  return { content: [{ type: "text", text: formatToolPayload(data) }] };
 }
