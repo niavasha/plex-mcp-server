@@ -96,7 +96,7 @@ jobs:
         fetch-depth: 0
     
     - name: Run TruffleHog
-      uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # main
+      uses: trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b # main
       with:
         extra_args: --only-verified
 
@@ -152,7 +152,7 @@ jobs:
 
     - name: Run Hadolint
       if: steps.detect.outputs.found == 'true'
-      uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
+      uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
       with:
         dockerfile: Dockerfile
         failure-threshold: warning
