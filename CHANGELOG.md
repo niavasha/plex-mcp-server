@@ -13,6 +13,22 @@ All notable changes to this project will be documented in this file.
 
 - Route Universal Watchlist reads and mutations through Plex Discover using global Plex GUIDs instead of unsupported local Plex Media Server endpoints.
 
+## [1.6.0](https://github.com/niavasha/plex-mcp-server/compare/v1.5.0...v1.6.0) (2026-09-03)
+
+
+### Added
+
+* add opt-in TOON output format for tool responses ([b4054af](https://github.com/niavasha/plex-mcp-server/commit/b4054af2aa2f27754f40f4f7e74dccfa587120d0))
+* add opt-in TOON output format for tool responses ([afc8f78](https://github.com/niavasha/plex-mcp-server/commit/afc8f786c08fbcedee9ee49ea49e2cab1c4096c0))
+
+
+### Fixed
+
+* **deps:** bump axios in the production-dependencies group ([#138](https://github.com/niavasha/plex-mcp-server/issues/138)) ([9a5aee1](https://github.com/niavasha/plex-mcp-server/commit/9a5aee177ef2ca8b68fb5ce5b1474b1e202d63b2))
+* **deps:** bump fast-uri from 3.1.5 to 3.1.7 ([#140](https://github.com/niavasha/plex-mcp-server/issues/140)) ([ab74f4b](https://github.com/niavasha/plex-mcp-server/commit/ab74f4bb297915859f1be214abf1142923203d05))
+* **deps:** bump qs from 6.15.2 to 6.16.0 ([#142](https://github.com/niavasha/plex-mcp-server/issues/142)) ([afc4295](https://github.com/niavasha/plex-mcp-server/commit/afc42956cc2340d334a30dad34734ce4e812ed7f))
+* **deps:** npm audit fix — fast-uri 3.1.7, qs 6.16.0 ([bf9883b](https://github.com/niavasha/plex-mcp-server/commit/bf9883b425ba3dc790dd441938d4a78c2669f0e7))
+
 ## [1.5.0](https://github.com/niavasha/plex-mcp-server/compare/v1.4.1...v1.5.0) (2026-08-20)
 
 
