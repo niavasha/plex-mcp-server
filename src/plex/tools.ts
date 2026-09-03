@@ -25,10 +25,11 @@ import {
   SMART_PLAYLIST_LIBTYPE_IDS,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
+import { formatToolPayload } from "../shared/output-format.js";
 
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
 }
 
 type MetadataUpdateInput = {

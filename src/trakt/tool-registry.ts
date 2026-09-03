@@ -5,6 +5,7 @@
 
 import { ToolRegistry } from "../plex/tool-registry.js";
 import { TraktMCPFunctions } from "./mcp-functions.js";
+import { formatToolPayload } from "../shared/output-format.js";
 
 export function createTraktToolRegistry(traktFunctions: TraktMCPFunctions): ToolRegistry {
   const registry = new ToolRegistry();
@@ -64,5 +65,5 @@ export function createTraktToolRegistry(traktFunctions: TraktMCPFunctions): Tool
 }
 
 function wrapResponse(data: Record<string, unknown>) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  return { content: [{ type: "text", text: formatToolPayload(data) }] };
 }

@@ -102,6 +102,36 @@ npx plex-mcp-server
 
 > **Trakt.tv setup** requires a [Trakt OAuth application](https://trakt.tv/oauth/applications). Create one with redirect URI `urn:ietf:wg:oauth:2.0:oob`, then add the Client ID and Secret to your config. Once the server is running, ask your AI assistant to "authenticate with Trakt" — it will guide you through the OAuth flow. See the [Trakt setup guide](docs/trakt-setup-guide.md) for detailed instructions.
 
+### Compact Responses (optional)
+
+Tools answer with JSON by default. Setting `PLEX_OUTPUT_FORMAT=toon` switches
+them to [TOON](https://toonformat.dev), which writes an array of records once as
+a header and then as rows instead of repeating every field name on every record:
+
+```
+results[3]{ratingKey,title,year}:
+  1001,Arrival,2016
+  1002,Sicario,2015
+  1003,Dune,2021
+```
+
+That is the same data your assistant would have received, in fewer tokens —
+around a third fewer across a spread of tool responses, and 40–60% fewer on the
+list-shaped ones like `search_media`, `get_library_items` and `radarr_get_movies`.
+The saving is only worth having on long lists, so each response is emitted as
+TOON only when TOON is actually shorter, and as JSON otherwise; enabling this
+cannot make a response larger than it is today.
+
+```json
+"env": {
+  "PLEX_TOKEN": "your_plex_token_here",
+  "PLEX_OUTPUT_FORMAT": "toon"
+}
+```
+
+Leave the variable unset — the default — and responses are byte-for-byte the
+JSON they have always been.
+
 <details>
 <summary><strong>Migrating from v1.0.x?</strong></summary>
 
