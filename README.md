@@ -279,14 +279,20 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 
 ## Getting Your Plex Token
 
-1. **Open Plex Web App** in your browser
-2. **Navigate to Settings** > Account > Privacy
-3. **Click "Show Advanced"** at the bottom
-4. **Copy your Plex Token**
+Follow the official Plex instructions from [Finding an authentication token / X-Plex-Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) to obtain your token:
 
-Alternative method:
-- Visit: `http://YOUR_PLEX_IP:32400/web/index.html#!/settings/account`
-- Look for the "Plex Token" field
+1. **Sign in** to your Plex account in the [Plex Web App](https://app.plex.tv/).
+2. **Browse to any media item** in your library (a movie, TV show episode, music track, etc.).
+3. **Open Media Info**:
+   - Click the `...` (More) menu on the item details page or poster card.
+   - Select **Get Info**.
+4. **View the XML**:
+   - Click **View XML** at the bottom of the Media Info window.
+5. **Copy the Token**:
+   - In the new browser tab showing the XML, inspect the URL in the address bar.
+   - Locate `X-Plex-Token=` in the URL parameters.
+   - Copy the token string immediately following `X-Plex-Token=`.
+6. Use this value for `PLEX_TOKEN` in your environment or MCP client configuration.
 
 ## Project Structure
 
