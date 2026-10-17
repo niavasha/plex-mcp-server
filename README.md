@@ -294,6 +294,8 @@ Follow the official Plex instructions from [Finding an authentication token / X-
    - Copy the token string immediately following `X-Plex-Token=`.
 6. Use this value for `PLEX_TOKEN` in your environment or MCP client configuration.
 
+> **Note:** Plex describes a token found this way as valid only temporarily. If the server starts failing to authenticate, repeat these steps to get a fresh token.
+
 ## Project Structure
 
 ```
