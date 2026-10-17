@@ -251,16 +251,16 @@ describe("ArrMCPFunctions", () => {
   });
 
   describe("missing API key errors", () => {
-    it("throws when SONARR_API_KEY is missing", () => {
+    it("throws when SONARR_API_KEY is missing", async () => {
       delete process.env.SONARR_API_KEY;
       const fresh = new ArrMCPFunctions();
-      expect(fresh.sonarrGetSeries({})).rejects.toThrow("SONARR_API_KEY");
+      await expect(fresh.sonarrGetSeries({})).rejects.toThrow("SONARR_API_KEY");
     });
 
-    it("throws when RADARR_API_KEY is missing", () => {
+    it("throws when RADARR_API_KEY is missing", async () => {
       delete process.env.RADARR_API_KEY;
       const fresh = new ArrMCPFunctions();
-      expect(fresh.radarrGetMovies({})).rejects.toThrow("RADARR_API_KEY");
+      await expect(fresh.radarrGetMovies({})).rejects.toThrow("RADARR_API_KEY");
     });
   });
 });
