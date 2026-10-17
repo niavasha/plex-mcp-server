@@ -2,17 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
-
-### Added
-
-- Add an opt-in `rate_media` tool for setting a Plex user's media rating.
-- Add opt-in `mark_watched` and `mark_unwatched` tools for changing Plex playback state.
-
-### Fixed
-
-- Route Universal Watchlist reads and mutations through Plex Discover using global Plex GUIDs instead of unsupported local Plex Media Server endpoints.
-
 ## [1.6.1](https://github.com/niavasha/plex-mcp-server/compare/v1.6.0...v1.6.1) (2026-10-17)
 
 
@@ -20,8 +9,7 @@ All notable changes to this project will be documented in this file.
 
 * **deps:** bump @modelcontextprotocol/sdk ([#155](https://github.com/niavasha/plex-mcp-server/issues/155)) ([005e28d](https://github.com/niavasha/plex-mcp-server/commit/005e28dc706898f7fabf8b84ed387276e1244547))
 * **deps:** bump @modelcontextprotocol/sdk ([#161](https://github.com/niavasha/plex-mcp-server/issues/161)) ([528f761](https://github.com/niavasha/plex-mcp-server/commit/528f7610a33e2a5964e53a1f322921d2a08bf885))
-* **deps:** bump dotenv from 17.4.2 to 18.0.7 ([12212f8](https://github.com/niavasha/plex-mcp-server/commit/12212f8e0efbede35b5028873bdf7168b8dee0de))
-* **deps:** bump dotenv from 17.4.2 to 18.0.7 ([0fc46ed](https://github.com/niavasha/plex-mcp-server/commit/0fc46edaeb7d86219306c3ac2916074a53de797a))
+* **deps:** bump dotenv from 17.4.2 to 18.0.7 ([#168](https://github.com/niavasha/plex-mcp-server/issues/168)) ([0fc46ed](https://github.com/niavasha/plex-mcp-server/commit/0fc46edaeb7d86219306c3ac2916074a53de797a))
 * **deps:** bump fast-uri from 3.1.7 to 3.1.8 ([#172](https://github.com/niavasha/plex-mcp-server/issues/172)) ([9f0e335](https://github.com/niavasha/plex-mcp-server/commit/9f0e33551ab8100edb262578080c61d40a4475a7))
 * **deps:** bump hono from 4.13.1 to 4.13.7 ([#148](https://github.com/niavasha/plex-mcp-server/issues/148)) ([1531863](https://github.com/niavasha/plex-mcp-server/commit/1531863657add3ecaddc73d267a3217a59cd5b60))
 * **deps:** bump ip-address from 10.4.0 to 10.7.2 ([#159](https://github.com/niavasha/plex-mcp-server/issues/159)) ([f561711](https://github.com/niavasha/plex-mcp-server/commit/f561711e462e562c5f3e4c76a8a8550224d6c638))
@@ -31,9 +19,8 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
-* note that a web-app Plex token is temporary ([72c4ad5](https://github.com/niavasha/plex-mcp-server/commit/72c4ad55c2aa3cfc4960be87b3e6ea1958e7f0d2))
-* update Plex token instructions to follow official Plex guide ([7c9ef79](https://github.com/niavasha/plex-mcp-server/commit/7c9ef796691c7429fb4c62b2f380692d8a35a195))
-* update Plex token instructions to follow official Plex guide ([44e27d3](https://github.com/niavasha/plex-mcp-server/commit/44e27d3d491c8af7ef73059b7b673e7b955afdde))
+* note that a web-app Plex token is temporary ([#175](https://github.com/niavasha/plex-mcp-server/issues/175)) ([72c4ad5](https://github.com/niavasha/plex-mcp-server/commit/72c4ad55c2aa3cfc4960be87b3e6ea1958e7f0d2))
+* update Plex token instructions to follow official Plex guide, thanks [@Shraymonks](https://github.com/Shraymonks) ([#164](https://github.com/niavasha/plex-mcp-server/issues/164)) ([44e27d3](https://github.com/niavasha/plex-mcp-server/commit/44e27d3d491c8af7ef73059b7b673e7b955afdde))
 
 ## [1.6.0](https://github.com/niavasha/plex-mcp-server/compare/v1.5.0...v1.6.0) (2026-09-03)
 
