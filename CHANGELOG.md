@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0](https://github.com/niavasha/plex-mcp-server/compare/v1.6.1...v1.7.0) (2026-10-18)
+
+
+### Added
+
+* **docker:** publish multi-arch image to ghcr.io on release ([6429c66](https://github.com/niavasha/plex-mcp-server/commit/6429c6615d85a12cc7c0a4e41e0fa7c06f922b66))
+* **docker:** publish multi-arch image to ghcr.io on release ([5917f0b](https://github.com/niavasha/plex-mcp-server/commit/5917f0b38d8cea70faeeb6411eaad8a5e15dcd57)), closes [#165](https://github.com/niavasha/plex-mcp-server/issues/165)
+
+
+### Fixed
+
+* **toon:** gate TOON on minified JSON for every module ([394b819](https://github.com/niavasha/plex-mcp-server/commit/394b8192da23c04fae39cb5969029f1677afe754))
+* **toon:** one size baseline for every module, plus docs and pin follow-ups ([da82288](https://github.com/niavasha/plex-mcp-server/commit/da82288c77d64057f2c26b18c4c4516f04ade8e8))
+
+
+### Documentation
+
+* state the TOON guarantee in characters and drop uncited savings figures ([4b3f670](https://github.com/niavasha/plex-mcp-server/commit/4b3f6708efaa757c393988acd7f1027d3f7623c1))
+
 ## [1.6.1](https://github.com/niavasha/plex-mcp-server/compare/v1.6.0...v1.6.1) (2026-10-17)
 
 
