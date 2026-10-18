@@ -115,12 +115,14 @@ results[3]{ratingKey,title,year}:
   1003,Dune,2021
 ```
 
-That is the same data your assistant would have received, in fewer tokens —
-around a third fewer across a spread of tool responses, and 40–60% fewer on the
-list-shaped ones like `search_media`, `get_library_items` and `radarr_get_movies`.
-The saving is only worth having on long lists, so each response is emitted as
-TOON only when TOON is actually shorter, and as JSON otherwise; enabling this
-cannot make a response larger than it is today.
+That is the same data your assistant would have received, in fewer characters.
+The saving is largest on long, uniform lists such as `search_media`,
+`get_library_items` and `radarr_get_movies`, and fewer characters usually means
+fewer tokens, though the exact effect depends on the payload and on your
+model's tokeniser. Each response is emitted as TOON only when it is shorter, in
+characters, than the same data as compact (minified) JSON, and as the usual
+JSON otherwise. Enabling this cannot make a response longer, in characters,
+than it is today. The guarantee is over characters, not tokens.
 
 ```json
 "env": {
