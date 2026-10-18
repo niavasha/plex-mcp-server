@@ -8,7 +8,7 @@ import axios, { AxiosRequestConfig } from "axios";
 import { PlexConfig, LibraryMovieRecord } from "./types.js";
 import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE } from "./constants.js";
 import { PlexAPIClient } from "../trakt/sync.js";
-import { PlexMovie, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
+import { PlexMovie, PlexShow, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
 import { validatePlexId } from "../shared/utils.js";
 
 const PLEX_DISCOVER_BASE_URL = "https://discover.provider.plex.tv";
@@ -65,6 +65,7 @@ export class PlexClient implements PlexAPIClient {
   async getWatchedMovies(userId?: number): Promise<PlexMovie[]> {
     const data = await this.makeRequest("/library/all", {
       type: 1,
+      includeGuids: 1,
       "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
     });
 
@@ -77,6 +78,7 @@ export class PlexClient implements PlexAPIClient {
         title: item.title as string,
         year: item.year as number | undefined,
         guid: item.guid as string | undefined,
+        Guid: this.externalGuids(item.Guid),
         duration: item.duration as number | undefined,
         viewCount: item.viewCount as number | undefined,
         lastViewedAt: item.lastViewedAt as number | undefined,
@@ -135,8 +137,11 @@ export class PlexClient implements PlexAPIClient {
     const showLibraries = libraries.filter((lib) => lib.type === "show");
 
     for (const library of showLibraries) {
-      const data = await this.makeRequest(`/library/sections/${library.key}/all`, {
+      const libraryKey = String(library.key);
+      const showsByRatingKey = await this.getShowsByRatingKey(libraryKey);
+      const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, {
         type: 4,
+        includeGuids: 1,
         "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
       });
 
@@ -145,22 +150,7 @@ export class PlexClient implements PlexAPIClient {
       episodes.push(
         ...libraryEpisodes
           .filter((item) => (item.viewCount as number) > 0)
-          .map((item) => ({
-            ratingKey: item.ratingKey as string,
-            title: item.title as string,
-            seasonNumber: (item.parentIndex as number) || 1,
-            episodeNumber: (item.index as number) || 1,
-            duration: item.duration as number | undefined,
-            viewCount: item.viewCount as number | undefined,
-            lastViewedAt: item.lastViewedAt as number | undefined,
-            guid: item.guid as string | undefined,
-            show: {
-              ratingKey: item.grandparentRatingKey as string,
-              title: item.grandparentTitle as string,
-              year: item.grandparentYear as number | undefined,
-              guid: item.grandparentGuid as string | undefined,
-            },
-          }))
+          .map((item) => this.toWatchedEpisode(item, showsByRatingKey))
       );
     }
 
@@ -227,5 +217,73 @@ export class PlexClient implements PlexAPIClient {
       time: progress,
       identifier: "com.plexapp.plugins.library",
     });
+  }
+
+  private async getShowsByRatingKey(libraryKey: string): Promise<Map<string, PlexShow>> {
+    const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, {
+      type: 2,
+      includeGuids: 1,
+      "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
+    });
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    const shows = new Map<string, PlexShow>();
+
+    for (const item of container.MediaContainer?.Metadata || []) {
+      if (item.ratingKey === undefined || item.ratingKey === null) continue;
+      const ratingKey = String(item.ratingKey);
+      shows.set(ratingKey, {
+        ratingKey,
+        title: (item.title as string) || "",
+        year: item.year as number | undefined,
+        guid: item.guid as string | undefined,
+        Guid: this.externalGuids(item.Guid),
+      });
+    }
+
+    return shows;
+  }
+
+  private toWatchedEpisode(
+    item: Record<string, unknown>,
+    showsByRatingKey: Map<string, PlexShow>
+  ): PlexEpisode {
+    const grandparentKey = this.ratingKeyString(item.grandparentRatingKey);
+    const matched = grandparentKey ? showsByRatingKey.get(grandparentKey) : undefined;
+
+    return {
+      ratingKey: item.ratingKey as string,
+      title: item.title as string,
+      seasonNumber: (item.parentIndex as number) || 1,
+      episodeNumber: (item.index as number) || 1,
+      duration: item.duration as number | undefined,
+      viewCount: item.viewCount as number | undefined,
+      lastViewedAt: item.lastViewedAt as number | undefined,
+      guid: item.guid as string | undefined,
+      Guid: this.externalGuids(item.Guid),
+      show: {
+        ratingKey: matched?.ratingKey ?? grandparentKey ?? "",
+        title: matched?.title || (item.grandparentTitle as string),
+        year: matched?.year ?? (item.grandparentYear as number | undefined),
+        guid: matched?.guid ?? (item.grandparentGuid as string | undefined),
+        Guid: matched?.Guid,
+      },
+    };
+  }
+
+  private ratingKeyString(value: unknown): string | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    return String(value);
+  }
+
+  private externalGuids(value: unknown): { id: string }[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const guids: { id: string }[] = [];
+    for (const entry of value) {
+      if (!entry || typeof entry !== "object" || !("id" in entry)) continue;
+      const id = (entry as { id: unknown }).id;
+      if (typeof id !== "string" || id.length === 0) continue;
+      guids.push({ id });
+    }
+    return guids;
   }
 }
