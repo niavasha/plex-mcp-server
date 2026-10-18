@@ -175,7 +175,9 @@ describe("Plex tool responses", () => {
     const toon = (await tools.searchMedia("q")).content[0].text;
 
     expect(toon.length).toBeLessThanOrEqual(json.length);
-    expect(decode(toon)).toEqual(JSON.parse(json));
+    // TOON loses to minified JSON for this fixture, so the default
+    // pretty-printed JSON is returned unchanged (issue #144).
+    expect(toon).toBe(json);
   });
 });
 
@@ -219,5 +221,135 @@ describe("Sonarr/Radarr tool responses", () => {
     const text = (await registry.handle("sonarr_get_queue")).content[0].text;
     expect(text).toContain("queue[2]{id,title,status,progress}:");
     expect(decode(text)).toEqual(queue);
+  });
+});
+
+/**
+ * Issue #144: one size rule for every module.
+ *
+ * Plex pretty-prints its JSON (indent 2) while Sonarr/Radarr and Trakt emit it
+ * minified. If the "is TOON shorter?" gate compared against whatever JSON each
+ * module happens to emit, TOON would only have to beat *indentation* on the
+ * Plex path. The rule asserted here is the same on every path: TOON is emitted
+ * only when it is strictly shorter (in UTF-16 code units, i.e. String.length)
+ * than the minified JSON of the same value. Anything else gets the module's
+ * default JSON, byte for byte.
+ */
+function assertSizeInvariant(toonModeText: string, defaultText: string) {
+  const value = JSON.parse(defaultText);
+  const minified = JSON.stringify(value);
+  if (toonModeText === defaultText) return; // fell back to the default JSON
+  expect(toonModeText.length).toBeLessThan(minified.length);
+  expect(decode(toonModeText)).toEqual(value);
+}
+
+describe("formatToolPayload size baseline (issue #144)", () => {
+  // TOON list form is 36 chars; minified JSON 33; pretty JSON 85. TOON beats
+  // the pretty-printed text but not the encoding-neutral minified baseline.
+  const ragged = { items: [{ a: 1 }, { a: 1, b: 2 }] };
+
+  it("compares against minified JSON regardless of indent", () => {
+    useToon();
+    expect(formatToolPayload(ragged, 2)).toBe(JSON.stringify(ragged, null, 2));
+    expect(formatToolPayload(ragged)).toBe(JSON.stringify(ragged));
+  });
+
+  it("still emits TOON on an indented path when it beats minified JSON", () => {
+    const tabular = { items: [{ id: 1, title: "A" }, { id: 2, title: "B" }] };
+    useToon();
+    expect(formatToolPayload(tabular, 2)).toBe("items[2]{id,title}:\n  1,A\n  2,B");
+  });
+
+  it("keeps the JSON when TOON only ties with minified JSON", () => {
+    // TOON "a[2]:\n  - a: 1\n  - z: 1" and minified JSON are both 23 chars.
+    const tie = { a: [{ a: 1 }, { z: 1 }] };
+    useToon();
+    expect(JSON.stringify(tie).length).toBe(23);
+    expect(formatToolPayload(tie)).toBe(JSON.stringify(tie));
+    expect(formatToolPayload(tie, 2)).toBe(JSON.stringify(tie, null, 2));
+  });
+
+  it("falls back to exactly the default output for every indent", () => {
+    for (const indent of [undefined, 0, 2, 4]) {
+      delete process.env[OUTPUT_FORMAT_ENV_VAR];
+      const def = formatToolPayload(ragged, indent);
+      expect(def).toBe(JSON.stringify(ragged, null, indent));
+      useToon();
+      expect(formatToolPayload(ragged, indent)).toBe(def);
+    }
+  });
+});
+
+describe("size invariant on each module's call path (issue #144)", () => {
+  /** Ragged Plex search results: the second has no summary, so no tabular form. */
+  const RAGGED_THREE = {
+    MediaContainer: {
+      Metadata: [
+        { ratingKey: "1", title: "First", type: "movie", year: 2001, summary: "One", rating: 7.5 },
+        { ratingKey: "2", title: "Second", type: "movie", year: 2002, rating: 8 },
+        { ratingKey: "3", title: "Third", type: "movie", year: 2003, summary: "Three", rating: 6 },
+      ],
+    },
+  };
+
+  it("Plex: TOON only when shorter than minified JSON", async () => {
+    for (const fixture of [SEARCH_FIXTURE, RAGGED_FIXTURE, RAGGED_THREE]) {
+      const client = createMockClient();
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue(fixture);
+      const tools = new PlexTools(client);
+      delete process.env[OUTPUT_FORMAT_ENV_VAR];
+      const def = (await tools.searchMedia("q")).content[0].text;
+      useToon();
+      const toon = (await tools.searchMedia("q")).content[0].text;
+      assertSizeInvariant(toon, def);
+    }
+  });
+
+  it("Trakt: TOON only when shorter than minified JSON", async () => {
+    const payloads = [
+      { authenticated: true, user: "someone" },
+      { results: [{ type: "movie", title: "A", year: 1 }, { type: "show", title: "B" }] },
+    ];
+    for (const payload of payloads) {
+      const fns = { traktSearch: async () => payload } as unknown as TraktMCPFunctions;
+      const registry = createTraktToolRegistry(fns);
+      delete process.env[OUTPUT_FORMAT_ENV_VAR];
+      const def = (await registry.handle("trakt_search", { query: "x" })).content[0].text;
+      useToon();
+      const toon = (await registry.handle("trakt_search", { query: "x" })).content[0].text;
+      assertSizeInvariant(toon, def);
+    }
+  });
+
+  it("Sonarr/Radarr: TOON only when shorter than minified JSON", async () => {
+    const payloads = [
+      { queue: [{ id: 1, title: "Ep 1", progress: 42 }, { id: 2, title: "Ep 2", progress: 0 }] },
+      { queue: [{ id: 1, title: "Ep 1" }, { id: 2, title: "Ep 2", progress: 0 }] },
+    ];
+    for (const payload of payloads) {
+      const fns = { sonarrGetQueue: async () => payload } as unknown as ArrMCPFunctions;
+      const registry = createArrToolRegistry(fns);
+      delete process.env[OUTPUT_FORMAT_ENV_VAR];
+      const def = (await registry.handle("sonarr_get_queue")).content[0].text;
+      expect(def).toBe(JSON.stringify(payload));
+      useToon();
+      const toon = (await registry.handle("sonarr_get_queue")).content[0].text;
+      assertSizeInvariant(toon, def);
+    }
+  });
+
+  it("default output is byte-identical to the pre-TOON serialisation on every path", async () => {
+    const client = createMockClient();
+    (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue(RAGGED_THREE);
+    const plexText = (await new PlexTools(client).searchMedia("q")).content[0].text;
+    expect(plexText).toBe(JSON.stringify(JSON.parse(plexText), null, 2));
+
+    const traktPayload = { results: [{ title: "A", summary: undefined }] };
+    const trakt = createTraktToolRegistry({ traktSearch: async () => traktPayload } as unknown as TraktMCPFunctions);
+    expect((await trakt.handle("trakt_search", { query: "x" })).content[0].text).toBe(JSON.stringify(traktPayload));
+
+    const arrPayload = { queue: [{ id: 1 }] };
+    const arr = createArrToolRegistry({ sonarrGetQueue: async () => arrPayload } as unknown as ArrMCPFunctions);
+    expect((await arr.handle("sonarr_get_queue")).content[0].text).toBe(JSON.stringify(arrPayload));
   });
 });
