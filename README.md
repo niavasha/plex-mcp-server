@@ -66,6 +66,41 @@ Or install directly from npm:
 npx plex-mcp-server
 ```
 
+### Run with Docker
+
+Each release from the next one onwards is published to GitHub Container
+Registry for `linux/amd64` and `linux/arm64`, tagged with its full version
+(`X.Y.Z`), `X.Y`, `X` and `latest`.
+
+The image starts the HTTP transport on port 3000, serving MCP at `/mcp`:
+
+```bash
+docker run -d --name plex-mcp \
+  -e PLEX_URL=http://your-plex-host:32400 \
+  -e PLEX_TOKEN=your_plex_token \
+  -p 127.0.0.1:3000:3000 \
+  ghcr.io/niavasha/plex-mcp-server:latest
+```
+
+The HTTP endpoint has no authentication of its own, and anyone who can reach
+it can call tools that use your Plex token. Keep it bound to `127.0.0.1` as
+above, or behind something that authenticates. Set `MCP_PORT` to listen on a
+different port.
+
+For an MCP client that launches the server itself over stdio, override the
+command. `--no-healthcheck` turns off the image's HTTP health check, which a
+stdio container never answers:
+
+```bash
+docker run -i --rm --no-healthcheck \
+  -e PLEX_URL=http://your-plex-host:32400 \
+  -e PLEX_TOKEN=your_plex_token \
+  ghcr.io/niavasha/plex-mcp-server:latest --transport stdio
+```
+
+The optional Trakt, Sonarr and Radarr variables from
+[Configuration](#configuration) are passed the same way, with `-e`.
+
 ### Configuration
 
 1. **Get your Plex token** (see [instructions below](#getting-your-plex-token))
