@@ -85,7 +85,9 @@ docker run -d --name plex-mcp \
 The HTTP endpoint has no authentication of its own, and anyone who can reach
 it can call tools that use your Plex token. Keep it bound to `127.0.0.1` as
 above, or behind something that authenticates. Set `MCP_PORT` to listen on a
-different port.
+different port, and `MCP_PATH` to serve MCP somewhere other than `/mcp` (for
+example `/plex/mcp` behind a reverse proxy). Outside Docker, the `--port` and
+`--path` flags do the same. The health check stays at `/health`.
 
 For an MCP client that launches the server itself over stdio, override the
 command. `--no-healthcheck` turns off the image's HTTP health check, which a
