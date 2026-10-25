@@ -49,6 +49,36 @@ function requireTagId(id: unknown): number {
   return id;
 }
 
+/**
+ * Resolve tag labels for an add request to tag IDs. Labels match existing tags
+ * case-insensitively (the services lowercase labels); missing ones are created.
+ */
+async function resolveTagLabels(
+  client: ArrServiceClient,
+  tags: unknown
+): Promise<{ ids: number[]; created: string[] } | undefined> {
+  if (tags === undefined) return undefined;
+  if (!Array.isArray(tags)) {
+    throw new Error("tags must be an array of tag labels");
+  }
+  const labels = [...new Map(tags.map(requireTagLabel).map((l) => [l.toLowerCase(), l])).values()];
+  if (labels.length === 0) return undefined;
+
+  const existing = new Map((await client.getTags()).map((t) => [t.label.toLowerCase(), t.id]));
+  const ids: number[] = [];
+  const created: string[] = [];
+  for (const label of labels) {
+    let id = existing.get(label.toLowerCase());
+    if (id === undefined) {
+      const tag = await client.createTag(label);
+      id = tag.id;
+      created.push(tag.label);
+    }
+    ids.push(id);
+  }
+  return { ids, created };
+}
+
 const listTags = (client: ArrServiceClient) =>
   runTagOp(async () => {
     const tags = await client.getTags();
@@ -217,6 +247,7 @@ export class ArrMCPFunctions {
     seasonFolder?: boolean;
     monitorType?: string;
     searchForMissingEpisodes?: boolean;
+    tags?: string[];
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
     try {
@@ -243,6 +274,9 @@ export class ArrMCPFunctions {
         };
       }
 
+      // After the profile check, so a request that cannot proceed creates no tags.
+      const tags = await resolveTagLabels(client, args.tags);
+
       const request: SonarrAddSeriesRequest = {
         tvdbId: args.tvdbId,
         title: args.title,
@@ -250,6 +284,7 @@ export class ArrMCPFunctions {
         rootFolderPath,
         monitored: args.monitored ?? true,
         seasonFolder: args.seasonFolder ?? true,
+        ...(tags && { tags: tags.ids }),
         addOptions: {
           monitor: args.monitorType || DEFAULT_MONITOR_TYPE,
           searchForMissingEpisodes: args.searchForMissingEpisodes ?? true,
@@ -261,6 +296,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         message: `Added "${series.title}" (${series.year}) to Sonarr`,
+        ...(tags?.created.length && { createdTags: tags.created }),
         series: {
           id: series.id,
           title: series.title,
@@ -269,6 +305,7 @@ export class ArrMCPFunctions {
           path: series.path,
           monitored: series.monitored,
           qualityProfileId: series.qualityProfileId,
+          tags: series.tags,
         },
       };
     } catch (error) {
@@ -535,6 +572,7 @@ export class ArrMCPFunctions {
     monitored?: boolean;
     minimumAvailability?: string;
     searchForMovie?: boolean;
+    tags?: string[];
   }): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
     try {
@@ -561,6 +599,9 @@ export class ArrMCPFunctions {
         };
       }
 
+      // After the profile check, so a request that cannot proceed creates no tags.
+      const tags = await resolveTagLabels(client, args.tags);
+
       const request: RadarrAddMovieRequest = {
         tmdbId: args.tmdbId,
         title: args.title,
@@ -568,6 +609,7 @@ export class ArrMCPFunctions {
         rootFolderPath,
         monitored: args.monitored ?? true,
         minimumAvailability: args.minimumAvailability || DEFAULT_MINIMUM_AVAILABILITY,
+        ...(tags && { tags: tags.ids }),
         addOptions: {
           searchForMovie: args.searchForMovie ?? true,
         },
@@ -577,6 +619,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         message: `Added "${movie.title}" (${movie.year}) to Radarr`,
+        ...(tags?.created.length && { createdTags: tags.created }),
         movie: {
           id: movie.id,
           title: movie.title,
@@ -585,6 +628,7 @@ export class ArrMCPFunctions {
           path: movie.path,
           monitored: movie.monitored,
           qualityProfileId: movie.qualityProfileId,
+          tags: movie.tags,
         },
       };
     } catch (error) {

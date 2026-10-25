@@ -196,6 +196,7 @@ export interface SonarrAddSeriesRequest {
   rootFolderPath: string;
   monitored: boolean;
   seasonFolder: boolean;
+  tags?: number[];
   addOptions: {
     monitor: string;
     searchForMissingEpisodes: boolean;
@@ -287,6 +288,7 @@ export interface RadarrAddMovieRequest {
   rootFolderPath: string;
   monitored: boolean;
   minimumAvailability: string;
+  tags?: number[];
   addOptions: {
     searchForMovie: boolean;
   };

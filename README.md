@@ -274,7 +274,7 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 |----------|-------------|
 | `sonarr_get_series` | List series with optional title filter |
 | `sonarr_search` | Search TheTVDB for new series |
-| `sonarr_add_series` | Add series by TVDB ID |
+| `sonarr_add_series` | Add series by TVDB ID, optionally with tags (created if missing) |
 | `sonarr_get_missing` | Missing/wanted episodes |
 | `sonarr_get_queue` | Download queue |
 | `sonarr_get_calendar` | Upcoming episodes |
@@ -291,7 +291,7 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 |----------|-------------|
 | `radarr_get_movies` | List movies with optional title filter |
 | `radarr_search` | Search TMDB for new movies |
-| `radarr_add_movie` | Add movie by TMDB ID |
+| `radarr_add_movie` | Add movie by TMDB ID, optionally with tags (created if missing) |
 | `radarr_get_missing` | Missing/wanted movies |
 | `radarr_get_queue` | Download queue |
 | `radarr_get_calendar` | Upcoming movies |

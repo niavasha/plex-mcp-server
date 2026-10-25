@@ -332,6 +332,80 @@ describe("ArrMCPFunctions", () => {
     });
   });
 
+  describe.each([
+    ["sonarr", "ensureSonarr", "addSeries", "sonarrAddSeries", { tvdbId: 1, title: "Show" }],
+    ["radarr", "ensureRadarr", "addMovie", "radarrAddMovie", { tmdbId: 1, title: "Movie" }],
+  ] as const)("%s add with tags", (_service, ensure, addMethod, fn, base) => {
+    function mockClient(overrides: Record<string, unknown> = {}) {
+      const createTag = vi.fn().mockImplementation(async (label: string) => ({ id: 7, label: label.toLowerCase() }));
+      const addMock = vi.fn().mockResolvedValue({ id: 9, title: "T", year: 2020, tags: [1, 7] });
+      const client = {
+        getQualityProfiles: vi.fn().mockResolvedValue([{ id: 1 }]),
+        getRootFolders: vi.fn().mockResolvedValue([{ path: "/media" }]),
+        getTags: vi.fn().mockResolvedValue([{ id: 1, label: "anime" }, { id: 2, label: "4k" }]),
+        createTag,
+        [addMethod]: addMock,
+        ...overrides,
+      };
+      (arr as unknown as Record<string, unknown>)[ensure] = vi.fn().mockReturnValue(client);
+      return { ...client, createTag, addMock };
+    }
+    const add = (args: Record<string, unknown>) =>
+      (arr as unknown as Record<string, (a: unknown) => Promise<Record<string, unknown>>>)[fn]({
+        ...base,
+        ...args,
+      });
+
+    it("uses existing tags without creating anything, matching labels case-insensitively", async () => {
+      const client = mockClient();
+      const result = await add({ tags: ["Anime", "4k", "anime"] });
+      expect(client.createTag).not.toHaveBeenCalled();
+      expect(client.addMock).toHaveBeenCalledWith(expect.objectContaining({ tags: [1, 2] }));
+      expect(result.success).toBe(true);
+      expect(result).not.toHaveProperty("createdTags");
+    });
+
+    it("creates missing tags first, then adds with their IDs", async () => {
+      const client = mockClient();
+      const result = await add({ tags: ["anime", "Kids"] });
+      expect(client.createTag).toHaveBeenCalledTimes(1);
+      expect(client.createTag).toHaveBeenCalledWith("Kids");
+      expect(client.createTag.mock.invocationCallOrder[0]).toBeLessThan(
+        client.addMock.mock.invocationCallOrder[0]
+      );
+      expect(client.addMock).toHaveBeenCalledWith(expect.objectContaining({ tags: [1, 7] }));
+      expect(result.success).toBe(true);
+      expect(result.createdTags).toEqual(["kids"]);
+    });
+
+    it.each([undefined, []])("omits tags and skips tag lookup when tags is %j", async (tags) => {
+      const client = mockClient();
+      await add({ tags });
+      expect(client.getTags).not.toHaveBeenCalled();
+      expect(client.createTag).not.toHaveBeenCalled();
+      expect(client.addMock.mock.calls[0][0]).not.toHaveProperty("tags");
+    });
+
+    it.each([["anime"], [[""]], [["  "]], [[1]]])(
+      "rejects malformed tags %j without creating or adding",
+      async (tags) => {
+        const client = mockClient();
+        const result = await add({ tags });
+        expect(result.success).toBe(false);
+        expect(client.createTag).not.toHaveBeenCalled();
+        expect(client.addMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it("creates no tags when the add cannot proceed", async () => {
+      const client = mockClient({ getQualityProfiles: vi.fn().mockResolvedValue([]) });
+      const result = await add({ tags: ["kids"] });
+      expect(result.success).toBe(false);
+      expect(client.createTag).not.toHaveBeenCalled();
+      expect(client.addMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe("missing API key errors", () => {
     it("throws when SONARR_API_KEY is missing", async () => {
       delete process.env.SONARR_API_KEY;

@@ -30,6 +30,7 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       seasonFolder: args.seasonFolder as boolean | undefined,
       monitorType: args.monitorType as string | undefined,
       searchForMissingEpisodes: args.searchForMissingEpisodes as boolean | undefined,
+      tags: args.tags as string[] | undefined,
     }).then(wrapResponse)
   );
 
@@ -97,6 +98,7 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       monitored: args.monitored as boolean | undefined,
       minimumAvailability: args.minimumAvailability as string | undefined,
       searchForMovie: args.searchForMovie as boolean | undefined,
+      tags: args.tags as string[] | undefined,
     }).then(wrapResponse)
   );
 
