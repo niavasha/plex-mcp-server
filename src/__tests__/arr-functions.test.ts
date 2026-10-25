@@ -121,6 +121,28 @@ describe("ArrMCPFunctions", () => {
       expect(item.tags).toEqual(["anime"]);
     });
 
+    it("still lists series when the tag lookup fails, showing tag IDs", async () => {
+      const series = makeSeries(2);
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureSonarr = vi.fn().mockReturnValue({
+        getSeries: vi.fn().mockResolvedValue(series),
+        getTags: vi.fn().mockRejectedValue(new Error("tag endpoint down")),
+      });
+
+      const result = await arr.sonarrGetSeries({});
+      expect(result.success).toBe(true);
+      expect((result.series as Array<{ tags: string[] }>)[0].tags).toEqual(["1"]);
+    });
+
+    it("shows the ID for a tag that no longer exists", async () => {
+      const series = [{ ...makeSeries(1)[0], tags: [1, 7] }];
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series), getTags: vi.fn().mockResolvedValue(TAGS) });
+
+      const result = await arr.sonarrGetSeries({});
+      expect((result.series as Array<{ tags: string[] }>)[0].tags).toEqual(["anime", "7"]);
+    });
+
     it("truncates overviews", async () => {
       const series = makeSeries(1);
       // @ts-expect-error — accessing private for test mock
@@ -222,6 +244,19 @@ describe("ArrMCPFunctions", () => {
 
       const result = await arr.radarrGetMovies({});
       expect((result.movies as Array<{ tags: string[] }>)[0].tags).toEqual(["4k"]);
+    });
+
+    it("still lists movies when the tag lookup fails, showing tag IDs", async () => {
+      const movies = makeMovies(2);
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureRadarr = vi.fn().mockReturnValue({
+        getMovies: vi.fn().mockResolvedValue(movies),
+        getTags: vi.fn().mockRejectedValue(new Error("tag endpoint down")),
+      });
+
+      const result = await arr.radarrGetMovies({});
+      expect(result.success).toBe(true);
+      expect((result.movies as Array<{ tags: string[] }>)[0].tags).toEqual(["2"]);
     });
   });
 
@@ -371,6 +406,7 @@ describe("ArrMCPFunctions", () => {
         getRootFolders: vi.fn().mockResolvedValue([{ path: "/media" }]),
         getTags: vi.fn().mockResolvedValue([{ id: 1, label: "anime" }, { id: 2, label: "4k" }]),
         createTag,
+        deleteTag: vi.fn().mockResolvedValue(undefined),
         [addMethod]: addMock,
         ...overrides,
       };
@@ -431,6 +467,52 @@ describe("ArrMCPFunctions", () => {
       expect(result.success).toBe(false);
       expect(client.createTag).not.toHaveBeenCalled();
       expect(client.addMock).not.toHaveBeenCalled();
+    });
+
+    it("removes only the tags it created when the add fails", async () => {
+      const client = mockClient({ [addMethod]: vi.fn().mockRejectedValue(new Error("already been added")) });
+      const result = await add({ tags: ["anime", "Kids"] });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("already been added");
+      expect(client.deleteTag).toHaveBeenCalledTimes(1);
+      expect(client.deleteTag).toHaveBeenCalledWith(7);
+      expect(result.removedTags).toEqual(["kids"]);
+      expect(result).not.toHaveProperty("leftTags");
+    });
+
+    it("deletes nothing when the add fails but every tag already existed", async () => {
+      const client = mockClient({ [addMethod]: vi.fn().mockRejectedValue(new Error("already been added")) });
+      const result = await add({ tags: ["anime"] });
+      expect(result.success).toBe(false);
+      expect(client.deleteTag).not.toHaveBeenCalled();
+      expect(result).not.toHaveProperty("removedTags");
+    });
+
+    it("removes tags it already created when a later tag cannot be created", async () => {
+      const createTag = vi
+        .fn()
+        .mockResolvedValueOnce({ id: 7, label: "newa" })
+        .mockRejectedValueOnce(new Error("label rejected"));
+      const client = mockClient({ createTag });
+      const result = await add({ tags: ["newa", "newb"] });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("label rejected");
+      expect(client.deleteTag).toHaveBeenCalledTimes(1);
+      expect(client.deleteTag).toHaveBeenCalledWith(7);
+      expect(result.removedTags).toEqual(["newa"]);
+      expect(client.addMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the original add error when the cleanup also fails", async () => {
+      const client = mockClient({
+        [addMethod]: vi.fn().mockRejectedValue(new Error("already been added")),
+        deleteTag: vi.fn().mockRejectedValue(new Error("tag delete failed")),
+      });
+      const result = await add({ tags: ["Kids"] });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("already been added");
+      expect(result.leftTags).toEqual(["kids"]);
+      expect(result).not.toHaveProperty("removedTags");
     });
   });
 
