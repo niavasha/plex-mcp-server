@@ -20,6 +20,7 @@ import {
   isMutativeOpsEnabled,
 } from "./plex/index.js";
 import { startServer } from "./shared/transport.js";
+import { SERVER_VERSION } from "./shared/version.js";
 import { withAnnotations } from "./shared/tool-annotations.js";
 
 // Trakt integration
@@ -41,7 +42,7 @@ class UnifiedMCPServer {
    */
   static createServer(): Server {
     const server = new Server(
-      { name: "plex-mcp-server", version: "1.2.0" },
+      { name: "plex-mcp-server", version: SERVER_VERSION },
       { capabilities: { tools: {} } }
     );
 
