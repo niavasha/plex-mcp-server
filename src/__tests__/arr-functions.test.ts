@@ -406,6 +406,45 @@ describe("ArrMCPFunctions", () => {
     });
   });
 
+  describe("sonarrAddSeries options", () => {
+    function mockClient() {
+      const addSeries = vi.fn().mockResolvedValue({ id: 9, title: "T", year: 2020 });
+      const client = {
+        getQualityProfiles: vi.fn().mockResolvedValue([{ id: 1 }]),
+        getRootFolders: vi.fn().mockResolvedValue([{ path: "/media" }]),
+        addSeries,
+      };
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureSonarr = vi.fn().mockReturnValue(client);
+      return addSeries;
+    }
+
+    it("sends series type and cutoff-unmet search when given", async () => {
+      const addSeries = mockClient();
+      await arr.sonarrAddSeries({
+        tvdbId: 1,
+        title: "Show",
+        seriesType: "anime",
+        monitorType: "pilot",
+        searchForCutoffUnmetEpisodes: true,
+      });
+      expect(addSeries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seriesType: "anime",
+          addOptions: expect.objectContaining({ monitor: "pilot", searchForCutoffUnmetEpisodes: true }),
+        })
+      );
+    });
+
+    it("leaves series type to Sonarr's default and keeps cutoff-unmet search off", async () => {
+      const addSeries = mockClient();
+      await arr.sonarrAddSeries({ tvdbId: 1, title: "Show" });
+      const request = addSeries.mock.calls[0][0];
+      expect(request).not.toHaveProperty("seriesType");
+      expect(request.addOptions.searchForCutoffUnmetEpisodes).toBe(false);
+    });
+  });
+
   describe("missing API key errors", () => {
     it("throws when SONARR_API_KEY is missing", async () => {
       delete process.env.SONARR_API_KEY;

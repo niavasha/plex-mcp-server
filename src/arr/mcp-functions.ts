@@ -246,7 +246,9 @@ export class ArrMCPFunctions {
     monitored?: boolean;
     seasonFolder?: boolean;
     monitorType?: string;
+    seriesType?: string;
     searchForMissingEpisodes?: boolean;
+    searchForCutoffUnmetEpisodes?: boolean;
     tags?: string[];
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
@@ -284,11 +286,12 @@ export class ArrMCPFunctions {
         rootFolderPath,
         monitored: args.monitored ?? true,
         seasonFolder: args.seasonFolder ?? true,
+        ...(args.seriesType && { seriesType: args.seriesType }),
         ...(tags && { tags: tags.ids }),
         addOptions: {
           monitor: args.monitorType || DEFAULT_MONITOR_TYPE,
           searchForMissingEpisodes: args.searchForMissingEpisodes ?? true,
-          searchForCutoffUnmetEpisodes: false,
+          searchForCutoffUnmetEpisodes: args.searchForCutoffUnmetEpisodes ?? false,
         },
       };
 

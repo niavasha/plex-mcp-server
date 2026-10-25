@@ -29,7 +29,9 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       monitored: args.monitored as boolean | undefined,
       seasonFolder: args.seasonFolder as boolean | undefined,
       monitorType: args.monitorType as string | undefined,
+      seriesType: args.seriesType as string | undefined,
       searchForMissingEpisodes: args.searchForMissingEpisodes as boolean | undefined,
+      searchForCutoffUnmetEpisodes: args.searchForCutoffUnmetEpisodes as boolean | undefined,
       tags: args.tags as string[] | undefined,
     }).then(wrapResponse)
   );

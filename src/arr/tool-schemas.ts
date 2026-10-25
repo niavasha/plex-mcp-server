@@ -44,10 +44,19 @@ export const SONARR_TOOL_SCHEMAS = [
         monitorType: {
           type: "string",
           description: "Which episodes to monitor",
-          enum: ["all", "future", "missing", "existing", "firstSeason", "latestSeason", "none"],
+          enum: [
+            "all", "future", "missing", "existing", "recent", "pilot", "firstSeason",
+            "lastSeason", "latestSeason", "monitorSpecials", "unmonitorSpecials", "none",
+          ],
           default: "all",
         },
+        seriesType: {
+          type: "string",
+          description: "Series type, used by Sonarr for renaming, parsing and searching (default: standard)",
+          enum: ["standard", "daily", "anime"],
+        },
         searchForMissingEpisodes: { type: "boolean", description: "Search for missing episodes after adding (default: true)", default: true },
+        searchForCutoffUnmetEpisodes: { type: "boolean", description: "Search for cutoff unmet episodes after adding (default: false)", default: false },
         tags: {
           type: "array",
           items: { type: "string" },

@@ -196,6 +196,7 @@ export interface SonarrAddSeriesRequest {
   rootFolderPath: string;
   monitored: boolean;
   seasonFolder: boolean;
+  seriesType?: string;
   tags?: number[];
   addOptions: {
     monitor: string;
