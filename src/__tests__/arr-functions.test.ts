@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ArrMCPFunctions } from "../arr/mcp-functions.js";
+import { RADARR_TOOL_SCHEMAS } from "../arr/tool-schemas.js";
 import { ARR_PREVIEW_LIMIT, ARR_DEFAULT_PAGE_SIZE } from "../arr/constants.js";
 import { SUMMARY_PREVIEW_LENGTH } from "../plex/constants.js";
 
@@ -443,6 +444,43 @@ describe("ArrMCPFunctions", () => {
       expect(request).not.toHaveProperty("seriesType");
       expect(request.addOptions.searchForCutoffUnmetEpisodes).toBe(false);
     });
+  });
+
+  describe("radarrAddMovie options", () => {
+    function mockClient() {
+      const addMovie = vi.fn().mockResolvedValue({ id: 9, title: "T", year: 2020 });
+      const client = {
+        getQualityProfiles: vi.fn().mockResolvedValue([{ id: 1 }]),
+        getRootFolders: vi.fn().mockResolvedValue([{ path: "/media" }]),
+        addMovie,
+      };
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureRadarr = vi.fn().mockReturnValue(client);
+      return addMovie;
+    }
+
+    it("sends the monitor option when given", async () => {
+      const addMovie = mockClient();
+      await arr.radarrAddMovie({ tmdbId: 1, title: "Movie", monitorType: "movieAndCollection" });
+      expect(addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          addOptions: expect.objectContaining({ monitor: "movieAndCollection", searchForMovie: true }),
+        })
+      );
+    });
+
+    it("leaves the monitor option to Radarr's default when omitted", async () => {
+      const addMovie = mockClient();
+      await arr.radarrAddMovie({ tmdbId: 1, title: "Movie" });
+      expect(addMovie.mock.calls[0][0].addOptions).not.toHaveProperty("monitor");
+    });
+  });
+
+  it("does not advertise minimumAvailability values the Radarr API rejects", () => {
+    const radarrAdd = RADARR_TOOL_SCHEMAS.find((s) => s.name === "radarr_add_movie")!;
+    const { enum: values } = (radarrAdd.inputSchema.properties as Record<string, { enum?: string[] }>)
+      .minimumAvailability;
+    expect(values).toEqual(["announced", "inCinemas", "released"]);
   });
 
   describe("missing API key errors", () => {

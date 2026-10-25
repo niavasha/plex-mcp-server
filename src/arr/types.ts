@@ -291,6 +291,7 @@ export interface RadarrAddMovieRequest {
   minimumAvailability: string;
   tags?: number[];
   addOptions: {
+    monitor?: string;
     searchForMovie: boolean;
   };
 }

@@ -99,6 +99,7 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       rootFolderPath: args.rootFolderPath as string | undefined,
       monitored: args.monitored as boolean | undefined,
       minimumAvailability: args.minimumAvailability as string | undefined,
+      monitorType: args.monitorType as string | undefined,
       searchForMovie: args.searchForMovie as boolean | undefined,
       tags: args.tags as string[] | undefined,
     }).then(wrapResponse)

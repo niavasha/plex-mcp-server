@@ -195,8 +195,13 @@ export const RADARR_TOOL_SCHEMAS = [
         minimumAvailability: {
           type: "string",
           description: "When the movie is considered available",
-          enum: ["announced", "inCinemas", "released", "preDB"],
+          enum: ["announced", "inCinemas", "released"],
           default: "released",
+        },
+        monitorType: {
+          type: "string",
+          description: "What to monitor (default: movieOnly). movieAndCollection also adds and monitors every other movie in its collection; monitored and searchForMovie apply only to this movie. Does not change monitored: pass monitored: false to leave the movie itself unmonitored",
+          enum: ["movieOnly", "movieAndCollection", "none"],
         },
         searchForMovie: { type: "boolean", description: "Search for the movie after adding (default: true)", default: true },
         tags: {

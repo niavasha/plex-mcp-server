@@ -574,6 +574,7 @@ export class ArrMCPFunctions {
     rootFolderPath?: string;
     monitored?: boolean;
     minimumAvailability?: string;
+    monitorType?: string;
     searchForMovie?: boolean;
     tags?: string[];
   }): Promise<Record<string, unknown>> {
@@ -614,6 +615,7 @@ export class ArrMCPFunctions {
         minimumAvailability: args.minimumAvailability || DEFAULT_MINIMUM_AVAILABILITY,
         ...(tags && { tags: tags.ids }),
         addOptions: {
+          ...(args.monitorType && { monitor: args.monitorType }),
           searchForMovie: args.searchForMovie ?? true,
         },
       };
