@@ -7,6 +7,7 @@
 import { SonarrClient, RadarrClient } from "./client.js";
 import {
   ArrConfig,
+  ArrTag,
   SonarrAddSeriesRequest,
   RadarrAddMovieRequest,
 } from "./types.js";
@@ -56,7 +57,7 @@ function requireTagId(id: unknown): number {
 async function resolveTagLabels(
   client: ArrServiceClient,
   tags: unknown
-): Promise<{ ids: number[]; created: string[] } | undefined> {
+): Promise<{ ids: number[]; labels: string[]; created: string[] } | undefined> {
   if (tags === undefined) return undefined;
   if (!Array.isArray(tags)) {
     throw new Error("tags must be an array of tag labels");
@@ -64,19 +65,24 @@ async function resolveTagLabels(
   const labels = [...new Map(tags.map(requireTagLabel).map((l) => [l.toLowerCase(), l])).values()];
   if (labels.length === 0) return undefined;
 
-  const existing = new Map((await client.getTags()).map((t) => [t.label.toLowerCase(), t.id]));
-  const ids: number[] = [];
+  const existing = new Map((await client.getTags()).map((t) => [t.label.toLowerCase(), t]));
+  const resolved: ArrTag[] = [];
   const created: string[] = [];
   for (const label of labels) {
-    let id = existing.get(label.toLowerCase());
-    if (id === undefined) {
-      const tag = await client.createTag(label);
-      id = tag.id;
+    let tag = existing.get(label.toLowerCase());
+    if (!tag) {
+      tag = await client.createTag(label);
       created.push(tag.label);
     }
-    ids.push(id);
+    resolved.push(tag);
   }
-  return { ids, created };
+  return { ids: resolved.map((t) => t.id), labels: resolved.map((t) => t.label), created };
+}
+
+/** Series and movies store tag IDs; callers only know labels. */
+function tagLabels(ids: number[], tags: ArrTag[]): string[] {
+  const labelById = new Map(tags.map((t) => [t.id, t.label]));
+  return ids.map((id) => labelById.get(id)!);
 }
 
 const listTags = (client: ArrServiceClient) =>
@@ -170,7 +176,8 @@ export class ArrMCPFunctions {
     const client = this.ensureSonarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      let series = await client.getSeries();
+      const [allSeries, tagList] = await Promise.all([client.getSeries(), client.getTags()]);
+      let series = allSeries;
       if (args.filter) {
         const f = args.filter.toLowerCase();
         series = series.filter((s) => s.title.toLowerCase().includes(f));
@@ -184,6 +191,8 @@ export class ArrMCPFunctions {
           year: s.year,
           status: s.status,
           network: s.network,
+          seriesType: s.seriesType,
+          tags: tagLabels(s.tags, tagList),
           monitored: s.monitored,
           seasons: s.statistics.seasonCount,
           episodeFileCount: s.statistics.episodeFileCount,
@@ -308,7 +317,7 @@ export class ArrMCPFunctions {
           path: series.path,
           monitored: series.monitored,
           qualityProfileId: series.qualityProfileId,
-          tags: series.tags,
+          tags: tags?.labels ?? [],
         },
       };
     } catch (error) {
@@ -502,7 +511,8 @@ export class ArrMCPFunctions {
     const client = this.ensureRadarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      let movies = await client.getMovies();
+      const [allMovies, tagList] = await Promise.all([client.getMovies(), client.getTags()]);
+      let movies = allMovies;
       if (args.filter) {
         const f = args.filter.toLowerCase();
         movies = movies.filter((m) => m.title.toLowerCase().includes(f));
@@ -522,6 +532,7 @@ export class ArrMCPFunctions {
           imdbId: m.imdbId,
           sizeOnDisk: m.sizeOnDisk,
           minimumAvailability: m.minimumAvailability,
+          tags: tagLabels(m.tags, tagList),
           overview: m.overview ? truncate(m.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
         showing: Math.min(limit, movies.length),
@@ -633,7 +644,7 @@ export class ArrMCPFunctions {
           path: movie.path,
           monitored: movie.monitored,
           qualityProfileId: movie.qualityProfileId,
-          tags: movie.tags,
+          tags: tags?.labels ?? [],
         },
       };
     } catch (error) {

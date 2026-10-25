@@ -5,6 +5,7 @@ import { ARR_PREVIEW_LIMIT, ARR_DEFAULT_PAGE_SIZE } from "../arr/constants.js";
 import { SUMMARY_PREVIEW_LENGTH } from "../plex/constants.js";
 
 const LONG_OVERVIEW = "B".repeat(1000);
+const TAGS = [{ id: 1, label: "anime" }, { id: 2, label: "4k" }];
 
 function makeSeries(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -14,6 +15,8 @@ function makeSeries(count: number) {
     status: "continuing",
     network: "HBO",
     monitored: true,
+    seriesType: "anime",
+    tags: [1],
     tvdbId: 100 + i,
     imdbId: `tt${i}`,
     overview: LONG_OVERVIEW,
@@ -30,6 +33,7 @@ function makeMovies(count: number) {
     hasFile: true,
     monitored: true,
     runtime: 120,
+    tags: [2],
     tmdbId: 200 + i,
     imdbId: `tt${1000 + i}`,
     sizeOnDisk: 5000000,
@@ -88,7 +92,7 @@ describe("ArrMCPFunctions", () => {
     it("respects custom limit", async () => {
       const series = makeSeries(300);
       // @ts-expect-error — accessing private for test mock
-      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series) });
+      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series), getTags: vi.fn().mockResolvedValue(TAGS) });
 
       const result = await arr.sonarrGetSeries({ limit: 5 });
       expect(result.success).toBe(true);
@@ -100,16 +104,27 @@ describe("ArrMCPFunctions", () => {
     it("defaults to ARR_PREVIEW_LIMIT when no limit given", async () => {
       const series = makeSeries(300);
       // @ts-expect-error — accessing private for test mock
-      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series) });
+      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series), getTags: vi.fn().mockResolvedValue(TAGS) });
 
       const result = await arr.sonarrGetSeries({});
       expect((result.series as unknown[]).length).toBe(ARR_PREVIEW_LIMIT);
     });
 
+    it("returns series type and tag labels instead of tag IDs", async () => {
+      const series = makeSeries(1);
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series), getTags: vi.fn().mockResolvedValue(TAGS) });
+
+      const result = await arr.sonarrGetSeries({});
+      const item = (result.series as Array<{ seriesType: string; tags: string[] }>)[0];
+      expect(item.seriesType).toBe("anime");
+      expect(item.tags).toEqual(["anime"]);
+    });
+
     it("truncates overviews", async () => {
       const series = makeSeries(1);
       // @ts-expect-error — accessing private for test mock
-      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series) });
+      arr.ensureSonarr = vi.fn().mockReturnValue({ getSeries: vi.fn().mockResolvedValue(series), getTags: vi.fn().mockResolvedValue(TAGS) });
 
       const result = await arr.sonarrGetSeries({});
       const item = (result.series as Array<{ overview: string }>)[0];
@@ -182,7 +197,7 @@ describe("ArrMCPFunctions", () => {
     it("respects custom limit", async () => {
       const movies = makeMovies(300);
       // @ts-expect-error — accessing private for test mock
-      arr.ensureRadarr = vi.fn().mockReturnValue({ getMovies: vi.fn().mockResolvedValue(movies) });
+      arr.ensureRadarr = vi.fn().mockReturnValue({ getMovies: vi.fn().mockResolvedValue(movies), getTags: vi.fn().mockResolvedValue(TAGS) });
 
       const result = await arr.radarrGetMovies({ limit: 5 });
       expect((result.movies as unknown[]).length).toBe(5);
@@ -192,10 +207,21 @@ describe("ArrMCPFunctions", () => {
     it("defaults to ARR_PREVIEW_LIMIT", async () => {
       const movies = makeMovies(300);
       // @ts-expect-error — accessing private for test mock
-      arr.ensureRadarr = vi.fn().mockReturnValue({ getMovies: vi.fn().mockResolvedValue(movies) });
+      arr.ensureRadarr = vi.fn().mockReturnValue({ getMovies: vi.fn().mockResolvedValue(movies), getTags: vi.fn().mockResolvedValue(TAGS) });
 
       const result = await arr.radarrGetMovies({});
       expect((result.movies as unknown[]).length).toBe(ARR_PREVIEW_LIMIT);
+    });
+  });
+
+  describe("radarrGetMovies tags", () => {
+    it("returns tag labels instead of tag IDs", async () => {
+      const movies = makeMovies(1);
+      // @ts-expect-error — accessing private for test mock
+      arr.ensureRadarr = vi.fn().mockReturnValue({ getMovies: vi.fn().mockResolvedValue(movies), getTags: vi.fn().mockResolvedValue(TAGS) });
+
+      const result = await arr.radarrGetMovies({});
+      expect((result.movies as Array<{ tags: string[] }>)[0].tags).toEqual(["4k"]);
     });
   });
 
@@ -377,6 +403,7 @@ describe("ArrMCPFunctions", () => {
       expect(client.addMock).toHaveBeenCalledWith(expect.objectContaining({ tags: [1, 7] }));
       expect(result.success).toBe(true);
       expect(result.createdTags).toEqual(["kids"]);
+      expect(((result.series ?? result.movie) as { tags: string[] }).tags).toEqual(["anime", "kids"]);
     });
 
     it.each([undefined, []])("omits tags and skips tag lookup when tags is %j", async (tags) => {

@@ -124,6 +124,7 @@ export interface SonarrSeries {
   titleSlug: string;
   certification: string;
   genres: string[];
+  seriesType: string;
   tags: number[];
   added: string;
   ratings: { votes: number; value: number };
