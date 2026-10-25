@@ -9,6 +9,7 @@ import {
   ArrSystemStatus,
   ArrQualityProfile,
   ArrRootFolder,
+  ArrTag,
   ArrQueueResponse,
   SonarrSeries,
   SonarrSearchResult,
@@ -101,6 +102,25 @@ class ArrClient {
   async getRootFolders(): Promise<ArrRootFolder[]> {
     const { data } = await this.http.get<ArrRootFolder[]>("/rootfolder");
     return data;
+  }
+
+  async getTags(): Promise<ArrTag[]> {
+    const { data } = await this.http.get<ArrTag[]>("/tag");
+    return data;
+  }
+
+  async createTag(label: string): Promise<ArrTag> {
+    const { data } = await this.http.post<ArrTag>("/tag", { label });
+    return data;
+  }
+
+  async updateTag(id: number, label: string): Promise<ArrTag> {
+    const { data } = await this.http.put<ArrTag>(`/tag/${id}`, { id, label });
+    return data;
+  }
+
+  async deleteTag(id: number): Promise<void> {
+    await this.http.delete(`/tag/${id}`);
   }
 
   async getQueue(page = 1, pageSize = ARR_DEFAULT_PAGE_SIZE): Promise<ArrQueueResponse> {

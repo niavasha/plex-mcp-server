@@ -29,7 +29,10 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       monitored: args.monitored as boolean | undefined,
       seasonFolder: args.seasonFolder as boolean | undefined,
       monitorType: args.monitorType as string | undefined,
+      seriesType: args.seriesType as string | undefined,
       searchForMissingEpisodes: args.searchForMissingEpisodes as boolean | undefined,
+      searchForCutoffUnmetEpisodes: args.searchForCutoffUnmetEpisodes as boolean | undefined,
+      tags: args.tags as string[] | undefined,
     }).then(wrapResponse)
   );
 
@@ -62,6 +65,22 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
     }).then(wrapResponse)
   );
 
+  registry.register("sonarr_get_tags", () =>
+    arrFunctions.sonarrGetTags().then(wrapResponse)
+  );
+
+  registry.register("sonarr_create_tag", (args) =>
+    arrFunctions.sonarrCreateTag({ label: args.label as string }).then(wrapResponse)
+  );
+
+  registry.register("sonarr_update_tag", (args) =>
+    arrFunctions.sonarrUpdateTag({ id: args.id as number, label: args.label as string }).then(wrapResponse)
+  );
+
+  registry.register("sonarr_delete_tag", (args) =>
+    arrFunctions.sonarrDeleteTag({ id: args.id as number }).then(wrapResponse)
+  );
+
   // ──── Radarr tools ────
 
   registry.register("radarr_get_movies", (args) =>
@@ -80,7 +99,9 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
       rootFolderPath: args.rootFolderPath as string | undefined,
       monitored: args.monitored as boolean | undefined,
       minimumAvailability: args.minimumAvailability as string | undefined,
+      monitorType: args.monitorType as string | undefined,
       searchForMovie: args.searchForMovie as boolean | undefined,
+      tags: args.tags as string[] | undefined,
     }).then(wrapResponse)
   );
 
@@ -111,6 +132,22 @@ export function createArrToolRegistry(arrFunctions: ArrMCPFunctions): ToolRegist
     arrFunctions.radarrTriggerSearch({
       movieId: args.movieId as number | undefined,
     }).then(wrapResponse)
+  );
+
+  registry.register("radarr_get_tags", () =>
+    arrFunctions.radarrGetTags().then(wrapResponse)
+  );
+
+  registry.register("radarr_create_tag", (args) =>
+    arrFunctions.radarrCreateTag({ label: args.label as string }).then(wrapResponse)
+  );
+
+  registry.register("radarr_update_tag", (args) =>
+    arrFunctions.radarrUpdateTag({ id: args.id as number, label: args.label as string }).then(wrapResponse)
+  );
+
+  registry.register("radarr_delete_tag", (args) =>
+    arrFunctions.radarrDeleteTag({ id: args.id as number }).then(wrapResponse)
   );
 
   // ──── Cross-service tools ────

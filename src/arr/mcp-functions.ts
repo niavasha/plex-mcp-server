@@ -7,6 +7,7 @@
 import { SonarrClient, RadarrClient } from "./client.js";
 import {
   ArrConfig,
+  ArrTag,
   SonarrAddSeriesRequest,
   RadarrAddMovieRequest,
 } from "./types.js";
@@ -20,6 +21,91 @@ import {
 } from "./constants.js";
 import { SUMMARY_PREVIEW_LENGTH } from "../plex/constants.js";
 import { truncate } from "../shared/utils.js";
+
+type ArrServiceClient = SonarrClient | RadarrClient;
+
+/** Tag endpoints are identical in Sonarr and Radarr, so one set of helpers serves both. */
+async function runTagOp(op: () => Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {
+  try {
+    return await op();
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function requireTagLabel(label: unknown): string {
+  if (typeof label !== "string" || label.trim() === "") {
+    throw new Error("label is required and must be a non-empty string");
+  }
+  return label.trim();
+}
+
+function requireTagId(id: unknown): number {
+  if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
+    throw new Error("id is required and must be a positive integer (see the get_tags tool)");
+  }
+  return id;
+}
+
+/**
+ * Resolve tag labels for an add request to tag IDs. Labels match existing tags
+ * case-insensitively (the services lowercase labels); missing ones are created.
+ */
+async function resolveTagLabels(
+  client: ArrServiceClient,
+  tags: unknown
+): Promise<{ ids: number[]; labels: string[]; created: string[] } | undefined> {
+  if (tags === undefined) return undefined;
+  if (!Array.isArray(tags)) {
+    throw new Error("tags must be an array of tag labels");
+  }
+  const labels = [...new Map(tags.map(requireTagLabel).map((l) => [l.toLowerCase(), l])).values()];
+  if (labels.length === 0) return undefined;
+
+  const existing = new Map((await client.getTags()).map((t) => [t.label.toLowerCase(), t]));
+  const resolved: ArrTag[] = [];
+  const created: string[] = [];
+  for (const label of labels) {
+    let tag = existing.get(label.toLowerCase());
+    if (!tag) {
+      tag = await client.createTag(label);
+      created.push(tag.label);
+    }
+    resolved.push(tag);
+  }
+  return { ids: resolved.map((t) => t.id), labels: resolved.map((t) => t.label), created };
+}
+
+/** Series and movies store tag IDs; callers only know labels. */
+function tagLabels(ids: number[], tags: ArrTag[]): string[] {
+  const labelById = new Map(tags.map((t) => [t.id, t.label]));
+  return ids.map((id) => labelById.get(id)!);
+}
+
+const listTags = (client: ArrServiceClient) =>
+  runTagOp(async () => {
+    const tags = await client.getTags();
+    return { success: true, totalTags: tags.length, tags };
+  });
+
+const createTag = (client: ArrServiceClient, label: unknown) =>
+  runTagOp(async () => ({ success: true, tag: await client.createTag(requireTagLabel(label)) }));
+
+const updateTag = (client: ArrServiceClient, id: unknown, label: unknown) =>
+  runTagOp(async () => ({
+    success: true,
+    tag: await client.updateTag(requireTagId(id), requireTagLabel(label)),
+  }));
+
+const deleteTag = (client: ArrServiceClient, id: unknown) =>
+  runTagOp(async () => {
+    const tagId = requireTagId(id);
+    await client.deleteTag(tagId);
+    return { success: true, deletedId: tagId };
+  });
 
 export class ArrMCPFunctions {
   private sonarrClient: SonarrClient | null = null;
@@ -67,6 +153,22 @@ export class ArrMCPFunctions {
 
   // ──── Sonarr tools ────
 
+  async sonarrGetTags(): Promise<Record<string, unknown>> {
+    return listTags(this.ensureSonarr());
+  }
+
+  async sonarrCreateTag(args: { label: string }): Promise<Record<string, unknown>> {
+    return createTag(this.ensureSonarr(), args.label);
+  }
+
+  async sonarrUpdateTag(args: { id: number; label: string }): Promise<Record<string, unknown>> {
+    return updateTag(this.ensureSonarr(), args.id, args.label);
+  }
+
+  async sonarrDeleteTag(args: { id: number }): Promise<Record<string, unknown>> {
+    return deleteTag(this.ensureSonarr(), args.id);
+  }
+
   async sonarrGetSeries(args: {
     filter?: string;
     limit?: number;
@@ -74,7 +176,8 @@ export class ArrMCPFunctions {
     const client = this.ensureSonarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      let series = await client.getSeries();
+      const [allSeries, tagList] = await Promise.all([client.getSeries(), client.getTags()]);
+      let series = allSeries;
       if (args.filter) {
         const f = args.filter.toLowerCase();
         series = series.filter((s) => s.title.toLowerCase().includes(f));
@@ -88,6 +191,8 @@ export class ArrMCPFunctions {
           year: s.year,
           status: s.status,
           network: s.network,
+          seriesType: s.seriesType,
+          tags: tagLabels(s.tags, tagList),
           monitored: s.monitored,
           seasons: s.statistics.seasonCount,
           episodeFileCount: s.statistics.episodeFileCount,
@@ -150,7 +255,10 @@ export class ArrMCPFunctions {
     monitored?: boolean;
     seasonFolder?: boolean;
     monitorType?: string;
+    seriesType?: string;
     searchForMissingEpisodes?: boolean;
+    searchForCutoffUnmetEpisodes?: boolean;
+    tags?: string[];
   }): Promise<Record<string, unknown>> {
     const client = this.ensureSonarr();
     try {
@@ -177,6 +285,9 @@ export class ArrMCPFunctions {
         };
       }
 
+      // After the profile check, so a request that cannot proceed creates no tags.
+      const tags = await resolveTagLabels(client, args.tags);
+
       const request: SonarrAddSeriesRequest = {
         tvdbId: args.tvdbId,
         title: args.title,
@@ -184,10 +295,12 @@ export class ArrMCPFunctions {
         rootFolderPath,
         monitored: args.monitored ?? true,
         seasonFolder: args.seasonFolder ?? true,
+        ...(args.seriesType && { seriesType: args.seriesType }),
+        ...(tags && { tags: tags.ids }),
         addOptions: {
           monitor: args.monitorType || DEFAULT_MONITOR_TYPE,
           searchForMissingEpisodes: args.searchForMissingEpisodes ?? true,
-          searchForCutoffUnmetEpisodes: false,
+          searchForCutoffUnmetEpisodes: args.searchForCutoffUnmetEpisodes ?? false,
         },
       };
 
@@ -195,6 +308,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         message: `Added "${series.title}" (${series.year}) to Sonarr`,
+        ...(tags?.created.length && { createdTags: tags.created }),
         series: {
           id: series.id,
           title: series.title,
@@ -203,6 +317,7 @@ export class ArrMCPFunctions {
           path: series.path,
           monitored: series.monitored,
           qualityProfileId: series.qualityProfileId,
+          tags: tags?.labels ?? [],
         },
       };
     } catch (error) {
@@ -373,6 +488,22 @@ export class ArrMCPFunctions {
 
   // ──── Radarr tools ────
 
+  async radarrGetTags(): Promise<Record<string, unknown>> {
+    return listTags(this.ensureRadarr());
+  }
+
+  async radarrCreateTag(args: { label: string }): Promise<Record<string, unknown>> {
+    return createTag(this.ensureRadarr(), args.label);
+  }
+
+  async radarrUpdateTag(args: { id: number; label: string }): Promise<Record<string, unknown>> {
+    return updateTag(this.ensureRadarr(), args.id, args.label);
+  }
+
+  async radarrDeleteTag(args: { id: number }): Promise<Record<string, unknown>> {
+    return deleteTag(this.ensureRadarr(), args.id);
+  }
+
   async radarrGetMovies(args: {
     filter?: string;
     limit?: number;
@@ -380,7 +511,8 @@ export class ArrMCPFunctions {
     const client = this.ensureRadarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      let movies = await client.getMovies();
+      const [allMovies, tagList] = await Promise.all([client.getMovies(), client.getTags()]);
+      let movies = allMovies;
       if (args.filter) {
         const f = args.filter.toLowerCase();
         movies = movies.filter((m) => m.title.toLowerCase().includes(f));
@@ -400,6 +532,7 @@ export class ArrMCPFunctions {
           imdbId: m.imdbId,
           sizeOnDisk: m.sizeOnDisk,
           minimumAvailability: m.minimumAvailability,
+          tags: tagLabels(m.tags, tagList),
           overview: m.overview ? truncate(m.overview, SUMMARY_PREVIEW_LENGTH) : undefined,
         })),
         showing: Math.min(limit, movies.length),
@@ -452,7 +585,9 @@ export class ArrMCPFunctions {
     rootFolderPath?: string;
     monitored?: boolean;
     minimumAvailability?: string;
+    monitorType?: string;
     searchForMovie?: boolean;
+    tags?: string[];
   }): Promise<Record<string, unknown>> {
     const client = this.ensureRadarr();
     try {
@@ -479,6 +614,9 @@ export class ArrMCPFunctions {
         };
       }
 
+      // After the profile check, so a request that cannot proceed creates no tags.
+      const tags = await resolveTagLabels(client, args.tags);
+
       const request: RadarrAddMovieRequest = {
         tmdbId: args.tmdbId,
         title: args.title,
@@ -486,7 +624,9 @@ export class ArrMCPFunctions {
         rootFolderPath,
         monitored: args.monitored ?? true,
         minimumAvailability: args.minimumAvailability || DEFAULT_MINIMUM_AVAILABILITY,
+        ...(tags && { tags: tags.ids }),
         addOptions: {
+          ...(args.monitorType && { monitor: args.monitorType }),
           searchForMovie: args.searchForMovie ?? true,
         },
       };
@@ -495,6 +635,7 @@ export class ArrMCPFunctions {
       return {
         success: true,
         message: `Added "${movie.title}" (${movie.year}) to Radarr`,
+        ...(tags?.created.length && { createdTags: tags.created }),
         movie: {
           id: movie.id,
           title: movie.title,
@@ -503,6 +644,7 @@ export class ArrMCPFunctions {
           path: movie.path,
           monitored: movie.monitored,
           qualityProfileId: movie.qualityProfileId,
+          tags: tags?.labels ?? [],
         },
       };
     } catch (error) {

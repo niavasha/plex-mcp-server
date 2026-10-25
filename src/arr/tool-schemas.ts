@@ -3,7 +3,7 @@
  * Mirrors the pattern from plex/tool-schemas.ts and trakt/tool-schemas.ts.
  */
 
-// ──── Sonarr schemas (8) ────
+// ──── Sonarr schemas (12) ────
 
 export const SONARR_TOOL_SCHEMAS = [
   {
@@ -44,10 +44,24 @@ export const SONARR_TOOL_SCHEMAS = [
         monitorType: {
           type: "string",
           description: "Which episodes to monitor",
-          enum: ["all", "future", "missing", "existing", "firstSeason", "latestSeason", "none"],
+          enum: [
+            "all", "future", "missing", "existing", "recent", "pilot", "firstSeason",
+            "lastSeason", "monitorSpecials", "unmonitorSpecials", "none",
+          ],
           default: "all",
         },
+        seriesType: {
+          type: "string",
+          description: "Series type, used by Sonarr for renaming, parsing and searching (default: standard)",
+          enum: ["standard", "daily", "anime"],
+        },
         searchForMissingEpisodes: { type: "boolean", description: "Search for missing episodes after adding (default: true)", default: true },
+        searchForCutoffUnmetEpisodes: { type: "boolean", description: "After adding, search for upgrades to monitored episodes whose existing files are below the quality profile's cutoff; no effect without files on disk (default: false)", default: false },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tag labels to assign; labels that do not exist yet are created first (existing tags: sonarr_get_tags)",
+        },
       },
       required: ["tvdbId", "title"],
     },
@@ -100,9 +114,48 @@ export const SONARR_TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    name: "sonarr_get_tags",
+    description: "List all Sonarr tags with their IDs and labels",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "sonarr_create_tag",
+    description: "Create a new Sonarr tag",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        label: { type: "string", description: "Tag label" },
+      },
+      required: ["label"],
+    },
+  },
+  {
+    name: "sonarr_update_tag",
+    description: "Rename an existing Sonarr tag",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "Tag ID (from sonarr_get_tags)" },
+        label: { type: "string", description: "New tag label" },
+      },
+      required: ["id", "label"],
+    },
+  },
+  {
+    name: "sonarr_delete_tag",
+    description: "Delete a Sonarr tag by ID",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "Tag ID (from sonarr_get_tags)" },
+      },
+      required: ["id"],
+    },
+  },
 ];
 
-// ──── Radarr schemas (8) ────
+// ──── Radarr schemas (12) ────
 
 export const RADARR_TOOL_SCHEMAS = [
   {
@@ -142,10 +195,20 @@ export const RADARR_TOOL_SCHEMAS = [
         minimumAvailability: {
           type: "string",
           description: "When the movie is considered available",
-          enum: ["announced", "inCinemas", "released", "preDB"],
+          enum: ["announced", "inCinemas", "released"],
           default: "released",
         },
+        monitorType: {
+          type: "string",
+          description: "What to monitor (default: movieOnly). movieAndCollection also adds and monitors every other movie in its collection; monitored and searchForMovie apply only to this movie. Does not change monitored: pass monitored: false to leave the movie itself unmonitored",
+          enum: ["movieOnly", "movieAndCollection", "none"],
+        },
         searchForMovie: { type: "boolean", description: "Search for the movie after adding (default: true)", default: true },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tag labels to assign; labels that do not exist yet are created first (existing tags: radarr_get_tags)",
+        },
       },
       required: ["tmdbId", "title"],
     },
@@ -198,6 +261,45 @@ export const RADARR_TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    name: "radarr_get_tags",
+    description: "List all Radarr tags with their IDs and labels",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "radarr_create_tag",
+    description: "Create a new Radarr tag",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        label: { type: "string", description: "Tag label" },
+      },
+      required: ["label"],
+    },
+  },
+  {
+    name: "radarr_update_tag",
+    description: "Rename an existing Radarr tag",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "Tag ID (from radarr_get_tags)" },
+        label: { type: "string", description: "New tag label" },
+      },
+      required: ["id", "label"],
+    },
+  },
+  {
+    name: "radarr_delete_tag",
+    description: "Delete a Radarr tag by ID",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "Tag ID (from radarr_get_tags)" },
+      },
+      required: ["id"],
+    },
+  },
 ];
 
 // ──── Cross-service schemas (1) ────
@@ -210,7 +312,7 @@ export const ARR_CROSS_TOOL_SCHEMAS = [
   },
 ];
 
-/** All 17 Arr tool schemas */
+/** All 25 Arr tool schemas */
 export const ARR_TOOL_SCHEMAS = [
   ...SONARR_TOOL_SCHEMAS,
   ...RADARR_TOOL_SCHEMAS,

@@ -25,6 +25,11 @@ export interface ArrRootFolder {
   freeSpace: number;
 }
 
+export interface ArrTag {
+  id: number;
+  label: string;
+}
+
 export interface ArrSystemStatus {
   appName: string;
   version: string;
@@ -119,6 +124,7 @@ export interface SonarrSeries {
   titleSlug: string;
   certification: string;
   genres: string[];
+  seriesType: string;
   tags: number[];
   added: string;
   ratings: { votes: number; value: number };
@@ -191,6 +197,8 @@ export interface SonarrAddSeriesRequest {
   rootFolderPath: string;
   monitored: boolean;
   seasonFolder: boolean;
+  seriesType?: string;
+  tags?: number[];
   addOptions: {
     monitor: string;
     searchForMissingEpisodes: boolean;
@@ -282,7 +290,9 @@ export interface RadarrAddMovieRequest {
   rootFolderPath: string;
   monitored: boolean;
   minimumAvailability: string;
+  tags?: number[];
   addOptions: {
+    monitor?: string;
     searchForMovie: boolean;
   };
 }
