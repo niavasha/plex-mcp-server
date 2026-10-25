@@ -197,16 +197,24 @@ export class SessionStore {
 /**
  * Validate a configured MCP path and strip any trailing slash, so "/plex/" and
  * "/plex" serve the same endpoint. Throws on anything that is not a plain path.
+ * Non-ASCII is refused because request paths arrive percent-encoded, so a
+ * configured "/plëx" could never match.
  */
 export function normalizeMcpPath(raw: string): string {
-  if (!raw.startsWith("/") || /[?#\s]/.test(raw)) {
-    throw new Error(`Invalid MCP path: "${raw}". It must start with "/" and contain no query, fragment or whitespace.`);
+  if (!raw.startsWith("/") || /[?#]|[^\x21-\x7e]/.test(raw)) {
+    throw new Error(
+      `Invalid MCP path: "${raw}". It must start with "/" and contain only printable ASCII, with no query, fragment or whitespace.`
+    );
   }
-  const path = raw.replace(/\/+$/, "") || "/";
+  const path = stripTrailingSlashes(raw);
   if (path === HEALTH_PATH) {
     throw new Error(`Invalid MCP path: "${raw}" is reserved for the health check.`);
   }
   return path;
+}
+
+function stripTrailingSlashes(path: string): string {
+  return path.replace(/\/+$/, "") || "/";
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -247,7 +255,8 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
       return;
     }
 
-    if (url.pathname !== mcpPath) {
+    // Reverse proxies often forward the prefix with a trailing slash.
+    if (stripTrailingSlashes(url.pathname) !== mcpPath) {
       sendJson(res, 404, {
         error: "Not Found",
         message: `Use POST ${mcpPath} for MCP requests, or GET ${HEALTH_PATH} for health check`,

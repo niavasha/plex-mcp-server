@@ -404,7 +404,8 @@ describe("normalizeMcpPath", () => {
     expect(normalizeMcpPath("/")).toBe("/");
   });
 
-  it.each(["mcp", "", "/mcp?x=1", "/mcp#a", "/my mcp"])("rejects %j", (raw) => {
+  // A non-ASCII path can never match: request paths arrive percent-encoded.
+  it.each(["mcp", "", "/mcp?x=1", "/mcp#a", "/my mcp", "/plëx", "/mcp\u0000"])("rejects %j", (raw) => {
     expect(() => normalizeMcpPath(raw)).toThrow(/Invalid MCP path/);
   });
 
@@ -458,5 +459,21 @@ describe("MCP HTTP handler with a custom path", () => {
   it("keeps the health check at /health", async () => {
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
+  });
+
+  // Reverse proxies often forward the prefix with a trailing slash.
+  it("serves MCP when the request adds a trailing slash", async () => {
+    const client = new Client({ name: "a", version: "1.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/plex/mcp/`)));
+
+    const { tools } = await client.listTools();
+    expect(tools[0].name).toBe("ping");
+
+    await client.close();
+  });
+
+  it.each(["/plex/mcpx", "/plex/mcp/x", "/plex", "/plex/mcp//x"])("still 404s %s", async (path) => {
+    const res = await fetch(`${baseUrl}${path}`, { method: "POST", body: "{}" });
+    expect(res.status).toBe(404);
   });
 });
