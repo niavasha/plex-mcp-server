@@ -21,6 +21,56 @@ import {
 import { SUMMARY_PREVIEW_LENGTH } from "../plex/constants.js";
 import { truncate } from "../shared/utils.js";
 
+type ArrServiceClient = SonarrClient | RadarrClient;
+
+/** Tag endpoints are identical in Sonarr and Radarr, so one set of helpers serves both. */
+async function runTagOp(op: () => Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {
+  try {
+    return await op();
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function requireTagLabel(label: unknown): string {
+  if (typeof label !== "string" || label.trim() === "") {
+    throw new Error("label is required and must be a non-empty string");
+  }
+  return label.trim();
+}
+
+function requireTagId(id: unknown): number {
+  if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
+    throw new Error("id is required and must be a positive integer (see the get_tags tool)");
+  }
+  return id;
+}
+
+const listTags = (client: ArrServiceClient) =>
+  runTagOp(async () => {
+    const tags = await client.getTags();
+    return { success: true, totalTags: tags.length, tags };
+  });
+
+const createTag = (client: ArrServiceClient, label: unknown) =>
+  runTagOp(async () => ({ success: true, tag: await client.createTag(requireTagLabel(label)) }));
+
+const updateTag = (client: ArrServiceClient, id: unknown, label: unknown) =>
+  runTagOp(async () => ({
+    success: true,
+    tag: await client.updateTag(requireTagId(id), requireTagLabel(label)),
+  }));
+
+const deleteTag = (client: ArrServiceClient, id: unknown) =>
+  runTagOp(async () => {
+    const tagId = requireTagId(id);
+    await client.deleteTag(tagId);
+    return { success: true, deletedId: tagId };
+  });
+
 export class ArrMCPFunctions {
   private sonarrClient: SonarrClient | null = null;
   private radarrClient: RadarrClient | null = null;
@@ -66,6 +116,22 @@ export class ArrMCPFunctions {
   }
 
   // ──── Sonarr tools ────
+
+  async sonarrGetTags(): Promise<Record<string, unknown>> {
+    return listTags(this.ensureSonarr());
+  }
+
+  async sonarrCreateTag(args: { label: string }): Promise<Record<string, unknown>> {
+    return createTag(this.ensureSonarr(), args.label);
+  }
+
+  async sonarrUpdateTag(args: { id: number; label: string }): Promise<Record<string, unknown>> {
+    return updateTag(this.ensureSonarr(), args.id, args.label);
+  }
+
+  async sonarrDeleteTag(args: { id: number }): Promise<Record<string, unknown>> {
+    return deleteTag(this.ensureSonarr(), args.id);
+  }
 
   async sonarrGetSeries(args: {
     filter?: string;
@@ -372,6 +438,22 @@ export class ArrMCPFunctions {
   }
 
   // ──── Radarr tools ────
+
+  async radarrGetTags(): Promise<Record<string, unknown>> {
+    return listTags(this.ensureRadarr());
+  }
+
+  async radarrCreateTag(args: { label: string }): Promise<Record<string, unknown>> {
+    return createTag(this.ensureRadarr(), args.label);
+  }
+
+  async radarrUpdateTag(args: { id: number; label: string }): Promise<Record<string, unknown>> {
+    return updateTag(this.ensureRadarr(), args.id, args.label);
+  }
+
+  async radarrDeleteTag(args: { id: number }): Promise<Record<string, unknown>> {
+    return deleteTag(this.ensureRadarr(), args.id);
+  }
 
   async radarrGetMovies(args: {
     filter?: string;

@@ -3,7 +3,51 @@
  * Mirrors the pattern from plex/tool-schemas.ts and trakt/tool-schemas.ts.
  */
 
-// ──── Sonarr schemas (8) ────
+/** Tag management is identical in both services, so the schemas are generated per service. */
+function tagToolSchemas(service: "Sonarr" | "Radarr") {
+  const prefix = service.toLowerCase();
+  const idDescription = `Tag ID (from ${prefix}_get_tags)`;
+  const labelDescription = "Tag label";
+  return [
+    {
+      name: `${prefix}_get_tags`,
+      description: `List all ${service} tags with their IDs and labels`,
+      inputSchema: { type: "object" as const, properties: {} },
+    },
+    {
+      name: `${prefix}_create_tag`,
+      description: `Create a new ${service} tag`,
+      inputSchema: {
+        type: "object" as const,
+        properties: { label: { type: "string", description: labelDescription } },
+        required: ["label"],
+      },
+    },
+    {
+      name: `${prefix}_update_tag`,
+      description: `Rename an existing ${service} tag`,
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          id: { type: "number", description: idDescription },
+          label: { type: "string", description: "New tag label" },
+        },
+        required: ["id", "label"],
+      },
+    },
+    {
+      name: `${prefix}_delete_tag`,
+      description: `Delete a ${service} tag by ID`,
+      inputSchema: {
+        type: "object" as const,
+        properties: { id: { type: "number", description: idDescription } },
+        required: ["id"],
+      },
+    },
+  ];
+}
+
+// ──── Sonarr schemas (12) ────
 
 export const SONARR_TOOL_SCHEMAS = [
   {
@@ -100,9 +144,10 @@ export const SONARR_TOOL_SCHEMAS = [
       },
     },
   },
+  ...tagToolSchemas("Sonarr"),
 ];
 
-// ──── Radarr schemas (8) ────
+// ──── Radarr schemas (12) ────
 
 export const RADARR_TOOL_SCHEMAS = [
   {
@@ -198,6 +243,7 @@ export const RADARR_TOOL_SCHEMAS = [
       },
     },
   },
+  ...tagToolSchemas("Radarr"),
 ];
 
 // ──── Cross-service schemas (1) ────
@@ -210,7 +256,7 @@ export const ARR_CROSS_TOOL_SCHEMAS = [
   },
 ];
 
-/** All 17 Arr tool schemas */
+/** All 25 Arr tool schemas */
 export const ARR_TOOL_SCHEMAS = [
   ...SONARR_TOOL_SCHEMAS,
   ...RADARR_TOOL_SCHEMAS,

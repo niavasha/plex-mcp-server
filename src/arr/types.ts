@@ -25,6 +25,11 @@ export interface ArrRootFolder {
   freeSpace: number;
 }
 
+export interface ArrTag {
+  id: number;
+  label: string;
+}
+
 export interface ArrSystemStatus {
   appName: string;
   version: string;

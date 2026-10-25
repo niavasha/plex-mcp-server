@@ -104,6 +104,10 @@ describe("safe-by-default classification", () => {
       "sonarr_add_series",
       "radarr_add_movie",
       "trakt_sync_to_trakt",
+      "sonarr_create_tag",
+      "sonarr_update_tag",
+      "radarr_create_tag",
+      "radarr_update_tag",
     ]) {
       expect(byName.get(name)?.readOnlyHint, name).toBe(false);
       expect(byName.get(name)?.destructiveHint, name).toBe(false);
@@ -119,11 +123,20 @@ describe("safe-by-default classification", () => {
       "search_media",
       "sonarr_get_series",
       "radarr_get_movies",
+      "sonarr_get_tags",
+      "radarr_get_tags",
       "arr_get_status",
       "trakt_search",
     ]) {
       expect(byName.get(name)?.readOnlyHint, name).toBe(true);
       expect(byName.get(name)?.destructiveHint, name).toBe(false);
+    }
+  });
+
+  it("marks tag deletion as destructive", () => {
+    for (const name of ["sonarr_delete_tag", "radarr_delete_tag"]) {
+      expect(byName.get(name)?.readOnlyHint, name).toBe(false);
+      expect(byName.get(name)?.destructiveHint, name).toBe(true);
     }
   });
 
@@ -153,6 +166,10 @@ const KNOWN_WRITES = new Set([
   "sonarr_trigger_search",
   "radarr_add_movie",
   "radarr_trigger_search",
+  "sonarr_create_tag",
+  "sonarr_update_tag",
+  "radarr_create_tag",
+  "radarr_update_tag",
   "trakt_authenticate",
   "trakt_complete_auth",
   "trakt_sync_to_trakt",

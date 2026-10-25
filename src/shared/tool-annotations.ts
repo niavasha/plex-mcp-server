@@ -29,7 +29,12 @@
 import { PLEX_MUTATIVE_TOOL_SCHEMAS } from "../plex/tool-schemas.js";
 
 /** Tools that irreversibly remove data. */
-const DESTRUCTIVE_TOOLS = new Set<string>(["delete_playlist", "clear_playlist"]);
+const DESTRUCTIVE_TOOLS = new Set<string>([
+  "delete_playlist",
+  "clear_playlist",
+  "sonarr_delete_tag",
+  "radarr_delete_tag",
+]);
 
 /** Tools that only read. Everything absent from this set is treated as a write. */
 const READ_ONLY_TOOLS = new Set<string>([
@@ -65,12 +70,14 @@ const READ_ONLY_TOOLS = new Set<string>([
   "sonarr_get_queue",
   "sonarr_get_calendar",
   "sonarr_get_profiles",
+  "sonarr_get_tags",
   "radarr_get_movies",
   "radarr_search",
   "radarr_get_missing",
   "radarr_get_queue",
   "radarr_get_calendar",
   "radarr_get_profiles",
+  "radarr_get_tags",
   "arr_get_status",
 ]);
 

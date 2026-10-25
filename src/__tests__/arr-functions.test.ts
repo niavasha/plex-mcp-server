@@ -250,6 +250,88 @@ describe("ArrMCPFunctions", () => {
     });
   });
 
+  describe.each([
+    ["sonarr", "ensureSonarr"],
+    ["radarr", "ensureRadarr"],
+  ] as const)("%s tag management", (service, ensure) => {
+    const method = (name: "GetTags" | "CreateTag" | "UpdateTag" | "DeleteTag") =>
+      `${service}${name}` as const;
+    const call = (name: "GetTags" | "CreateTag" | "UpdateTag" | "DeleteTag", args?: unknown) =>
+      (arr as unknown as Record<string, (a?: unknown) => Promise<Record<string, unknown>>>)[
+        method(name)
+      ](args);
+
+    function mockClient(overrides: Record<string, unknown> = {}) {
+      const client = {
+        getTags: vi.fn().mockResolvedValue([{ id: 1, label: "anime" }, { id: 2, label: "4k" }]),
+        createTag: vi.fn().mockResolvedValue({ id: 3, label: "kids" }),
+        updateTag: vi.fn().mockResolvedValue({ id: 1, label: "cartoons" }),
+        deleteTag: vi.fn().mockResolvedValue(undefined),
+        ...overrides,
+      };
+      (arr as unknown as Record<string, unknown>)[ensure] = vi.fn().mockReturnValue(client);
+      return client;
+    }
+
+    it("lists tags", async () => {
+      mockClient();
+      expect(await call("GetTags")).toEqual({
+        success: true,
+        totalTags: 2,
+        tags: [{ id: 1, label: "anime" }, { id: 2, label: "4k" }],
+      });
+    });
+
+    it("creates a tag with a trimmed label", async () => {
+      const client = mockClient();
+      const result = await call("CreateTag", { label: "  kids " });
+      expect(client.createTag).toHaveBeenCalledWith("kids");
+      expect(result).toEqual({ success: true, tag: { id: 3, label: "kids" } });
+    });
+
+    it("updates a tag", async () => {
+      const client = mockClient();
+      const result = await call("UpdateTag", { id: 1, label: "cartoons" });
+      expect(client.updateTag).toHaveBeenCalledWith(1, "cartoons");
+      expect(result).toEqual({ success: true, tag: { id: 1, label: "cartoons" } });
+    });
+
+    it("deletes a tag", async () => {
+      const client = mockClient();
+      const result = await call("DeleteTag", { id: 2 });
+      expect(client.deleteTag).toHaveBeenCalledWith(2);
+      expect(result).toEqual({ success: true, deletedId: 2 });
+    });
+
+    it.each([
+      ["CreateTag", { label: "" }],
+      ["CreateTag", { label: "   " }],
+      ["CreateTag", {}],
+      ["UpdateTag", { id: 1, label: "" }],
+      ["UpdateTag", { id: 0, label: "x" }],
+      ["UpdateTag", { id: "1", label: "x" }],
+      ["DeleteTag", { id: -1 }],
+      ["DeleteTag", { id: 1.5 }],
+      ["DeleteTag", {}],
+    ] as const)("rejects invalid %s input %j without calling the API", async (name, args) => {
+      const client = mockClient();
+      const result = await call(name, args);
+      expect(result.success).toBe(false);
+      expect(result.error).toEqual(expect.any(String));
+      expect(client.createTag).not.toHaveBeenCalled();
+      expect(client.updateTag).not.toHaveBeenCalled();
+      expect(client.deleteTag).not.toHaveBeenCalled();
+    });
+
+    it("reports API errors instead of throwing", async () => {
+      mockClient({ deleteTag: vi.fn().mockRejectedValue(new Error("boom: tag in use")) });
+      expect(await call("DeleteTag", { id: 1 })).toEqual({
+        success: false,
+        error: "boom: tag in use",
+      });
+    });
+  });
+
   describe("missing API key errors", () => {
     it("throws when SONARR_API_KEY is missing", async () => {
       delete process.env.SONARR_API_KEY;

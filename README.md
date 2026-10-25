@@ -27,7 +27,7 @@ This MCP server transforms your Plex Media Server into an AI-queryable database.
 
 ## Features
 
-**46 tools** out of the box (58 with write operations enabled):
+**54 tools** out of the box (66 with write operations enabled):
 
 - **Plex Library Management** — Browse libraries, search media, get detailed metadata, list playlists and watchlist
 - **Tautulli-Style Analytics** — Viewing statistics, user activity, popular content, watch history
@@ -222,7 +222,7 @@ Once configured, you can ask your AI assistant:
 
 ## Available Functions
 
-46 tools out of the box (58 with write operations enabled).
+54 tools out of the box (66 with write operations enabled).
 
 ### Plex Tools (20 tools)
 
@@ -268,7 +268,7 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 | `mark_watched` | Mark a media item as watched |
 | `mark_unwatched` | Mark a media item as unwatched |
 
-### Sonarr Tools (8 tools)
+### Sonarr Tools (12 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -280,8 +280,12 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 | `sonarr_get_calendar` | Upcoming episodes |
 | `sonarr_get_profiles` | Quality profiles and root folders |
 | `sonarr_trigger_search` | Trigger missing episode search |
+| `sonarr_get_tags` | List tags with their IDs and labels |
+| `sonarr_create_tag` | Create a tag |
+| `sonarr_update_tag` | Rename a tag |
+| `sonarr_delete_tag` | Delete a tag |
 
-### Radarr Tools (8 tools)
+### Radarr Tools (12 tools)
 
 | Function | Description |
 |----------|-------------|
@@ -293,6 +297,10 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 | `radarr_get_calendar` | Upcoming movies |
 | `radarr_get_profiles` | Quality profiles and root folders |
 | `radarr_trigger_search` | Trigger missing movie search |
+| `radarr_get_tags` | List tags with their IDs and labels |
+| `radarr_create_tag` | Create a tag |
+| `radarr_update_tag` | Rename a tag |
+| `radarr_delete_tag` | Delete a tag |
 
 ### Cross-Service Tools (1 tool)
 
@@ -351,7 +359,7 @@ plex-mcp-server/
 │   │   └── types.ts           #   TypeScript type definitions
 │   ├── arr/                   # Sonarr/Radarr module
 │   │   ├── client.ts          #   Base ArrClient + Sonarr/Radarr subclasses
-│   │   ├── mcp-functions.ts   #   Tool implementations (17 tools)
+│   │   ├── mcp-functions.ts   #   Tool implementations (25 tools)
 │   │   ├── tool-registry.ts   #   Map-based tool dispatch
 │   │   ├── tool-schemas.ts    #   MCP tool schema definitions
 │   │   ├── constants.ts       #   Configuration defaults
