@@ -17,8 +17,14 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 
 type TransportMode = "stdio" | "http";
 
+/** URL path the MCP endpoint is served on unless --path or MCP_PATH says otherwise. */
+export const DEFAULT_MCP_PATH = "/mcp";
+
+/** Fixed health-check path. The MCP path may not shadow it. */
+const HEALTH_PATH = "/health";
+
 /** Largest accepted JSON-RPC request body. Guards against memory exhaustion
- *  from an unauthenticated POST to /mcp. */
+ *  from an unauthenticated POST to the MCP path. */
 export const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** Close a session after this long with no traffic. */
@@ -188,6 +194,21 @@ export class SessionStore {
   }
 }
 
+/**
+ * Validate a configured MCP path and strip any trailing slash, so "/plex/" and
+ * "/plex" serve the same endpoint. Throws on anything that is not a plain path.
+ */
+export function normalizeMcpPath(raw: string): string {
+  if (!raw.startsWith("/") || /[?#\s]/.test(raw)) {
+    throw new Error(`Invalid MCP path: "${raw}". It must start with "/" and contain no query, fragment or whitespace.`);
+  }
+  const path = raw.replace(/\/+$/, "") || "/";
+  if (path === HEALTH_PATH) {
+    throw new Error(`Invalid MCP path: "${raw}" is reserved for the health check.`);
+  }
+  return path;
+}
+
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload));
@@ -203,6 +224,8 @@ export interface McpHandlerOptions {
   serverName: string;
   store: SessionStore;
   maxBodyBytes?: number;
+  /** Path the MCP endpoint is served on. Defaults to DEFAULT_MCP_PATH. */
+  mcpPath?: string;
 }
 
 /**
@@ -214,19 +237,20 @@ export interface McpHandlerOptions {
 export function createMcpRequestHandler(options: McpHandlerOptions) {
   const { getServer, serverName, store } = options;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const mcpPath = normalizeMcpPath(options.mcpPath ?? DEFAULT_MCP_PATH);
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-    if (url.pathname === "/health" && req.method === "GET") {
+    if (url.pathname === HEALTH_PATH && req.method === "GET") {
       sendJson(res, 200, { status: "ok", server: serverName, sessions: store.size });
       return;
     }
 
-    if (url.pathname !== "/mcp") {
+    if (url.pathname !== mcpPath) {
       sendJson(res, 404, {
         error: "Not Found",
-        message: "Use POST /mcp for MCP requests, or GET /health for health check",
+        message: `Use POST ${mcpPath} for MCP requests, or GET ${HEALTH_PATH} for health check`,
       });
       return;
     }
@@ -321,10 +345,11 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
   };
 }
 
-function parseArgs(): { transport: TransportMode; port: number } {
+function parseArgs(): { transport: TransportMode; port: number; mcpPath: string } {
   const args = process.argv.slice(2);
   let transport: TransportMode = "stdio";
   let port = 3000;
+  let mcpPath = DEFAULT_MCP_PATH;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--transport" && args[i + 1]) {
@@ -342,6 +367,10 @@ function parseArgs(): { transport: TransportMode; port: number } {
       }
       i++;
     }
+    if (args[i] === "--path" && args[i + 1]) {
+      mcpPath = normalizeMcpPath(args[i + 1]);
+      i++;
+    }
   }
 
   if (process.env.MCP_PORT) {
@@ -351,7 +380,11 @@ function parseArgs(): { transport: TransportMode; port: number } {
     }
   }
 
-  return { transport, port };
+  if (process.env.MCP_PATH) {
+    mcpPath = normalizeMcpPath(process.env.MCP_PATH);
+  }
+
+  return { transport, port, mcpPath };
 }
 
 function positiveIntFromEnv(name: string, fallback: number): number {
@@ -371,7 +404,7 @@ export async function startServer(
   getServer: () => Server,
   serverName: string
 ): Promise<void> {
-  const { transport, port } = parseArgs();
+  const { transport, port, mcpPath } = parseArgs();
 
   if (transport === "stdio") {
     // One process, one client, one session — no session tracking needed.
@@ -387,7 +420,7 @@ export async function startServer(
   });
   store.startSweeper();
 
-  const httpServer = createServer(createMcpRequestHandler({ getServer, serverName, store }));
+  const httpServer = createServer(createMcpRequestHandler({ getServer, serverName, store, mcpPath }));
 
   const shutdown = () => {
     store.closeAll();
@@ -397,6 +430,6 @@ export async function startServer(
   process.once("SIGTERM", shutdown);
 
   httpServer.listen(port, () => {
-    console.error(`${serverName} running on http://localhost:${port}/mcp`);
+    console.error(`${serverName} running on http://localhost:${port}${mcpPath}`);
   });
 }

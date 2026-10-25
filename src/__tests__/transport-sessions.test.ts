@@ -14,6 +14,7 @@ import {
   BodyTooLargeError,
   readBody,
   createMcpRequestHandler,
+  normalizeMcpPath,
   DEFAULT_MAX_BODY_BYTES,
 } from "../shared/transport.js";
 
@@ -389,5 +390,73 @@ describe("MCP HTTP handler", () => {
     expect(res.status).toBe(503);
 
     for (const c of clients) await c.close();
+  });
+});
+
+describe("normalizeMcpPath", () => {
+  it("keeps a plain path", () => {
+    expect(normalizeMcpPath("/mcp")).toBe("/mcp");
+    expect(normalizeMcpPath("/plex/mcp")).toBe("/plex/mcp");
+  });
+
+  it("strips trailing slashes but keeps the root", () => {
+    expect(normalizeMcpPath("/plex/")).toBe("/plex");
+    expect(normalizeMcpPath("/")).toBe("/");
+  });
+
+  it.each(["mcp", "", "/mcp?x=1", "/mcp#a", "/my mcp"])("rejects %j", (raw) => {
+    expect(() => normalizeMcpPath(raw)).toThrow(/Invalid MCP path/);
+  });
+
+  it("refuses to shadow the health check", () => {
+    expect(() => normalizeMcpPath("/health/")).toThrow(/health check/);
+  });
+});
+
+describe("MCP HTTP handler with a custom path", () => {
+  let httpServer: HttpServer;
+  let baseUrl: string;
+  let store: SessionStore;
+
+  beforeEach(async () => {
+    store = new SessionStore();
+    const handler = createMcpRequestHandler({
+      getServer: buildTestServer,
+      serverName: "test-server",
+      store,
+      mcpPath: "/plex/mcp/",
+    });
+    httpServer = createServer(handler);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const { port } = httpServer.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterEach(async () => {
+    store.closeAll();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  it("serves MCP on the configured path", async () => {
+    const client = new Client({ name: "a", version: "1.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/plex/mcp`)));
+
+    const { tools } = await client.listTools();
+    expect(tools[0].name).toBe("ping");
+
+    await client.close();
+  });
+
+  it("no longer answers on the default path", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, { method: "POST", body: "{}" });
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      message: expect.stringContaining("POST /plex/mcp"),
+    });
+  });
+
+  it("keeps the health check at /health", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
   });
 });
