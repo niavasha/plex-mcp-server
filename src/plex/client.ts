@@ -6,7 +6,7 @@
 
 import axios, { AxiosRequestConfig } from "axios";
 import { PlexConfig, LibraryMovieRecord } from "./types.js";
-import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE } from "./constants.js";
+import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE, PLEX_MAX_PAGES } from "./constants.js";
 import { PlexAPIClient } from "../trakt/sync.js";
 import { PlexMovie, PlexShow, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
 import { validatePlexId } from "../shared/utils.js";
@@ -63,14 +63,7 @@ export class PlexClient implements PlexAPIClient {
   // PlexAPIClient implementation for Trakt sync
 
   async getWatchedMovies(userId?: number): Promise<PlexMovie[]> {
-    const data = await this.makeRequest("/library/all", {
-      type: 1,
-      includeGuids: 1,
-      "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
-    });
-
-    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-    const movies = container.MediaContainer?.Metadata || [];
+    const movies = await this.fetchAllPages("/library/all", { type: 1, includeGuids: 1 });
     return movies
       .filter((item) => (item.viewCount as number) > 0)
       .map((item) => ({
@@ -139,14 +132,10 @@ export class PlexClient implements PlexAPIClient {
     for (const library of showLibraries) {
       const libraryKey = String(library.key);
       const showsByRatingKey = await this.getShowsByRatingKey(libraryKey);
-      const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, {
+      const libraryEpisodes = await this.fetchAllPages(`/library/sections/${libraryKey}/all`, {
         type: 4,
         includeGuids: 1,
-        "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
       });
-
-      const epContainer = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-      const libraryEpisodes = epContainer.MediaContainer?.Metadata || [];
       episodes.push(
         ...libraryEpisodes
           .filter((item) => (item.viewCount as number) > 0)
@@ -219,16 +208,45 @@ export class PlexClient implements PlexAPIClient {
     });
   }
 
+  /**
+   * Fetch every item of a listing, one PLEX_CONTAINER_SIZE page at a time.
+   * Some endpoints omit totalSize, so a missing total means "unknown" and only
+   * a short or empty page ends the walk.
+   */
+  private async fetchAllPages(
+    endpoint: string,
+    params: Record<string, string | number>
+  ): Promise<Record<string, unknown>[]> {
+    const all: Record<string, unknown>[] = [];
+
+    for (let page = 0; page < PLEX_MAX_PAGES; page++) {
+      const data = await this.makeRequest(endpoint, {
+        ...params,
+        "X-Plex-Container-Start": all.length,
+        "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
+      });
+      const container = data as { MediaContainer?: { totalSize?: number; Metadata?: Record<string, unknown>[] } };
+      const items = container.MediaContainer?.Metadata || [];
+      const totalSize = container.MediaContainer?.totalSize;
+      all.push(...items);
+
+      if (items.length < PLEX_CONTAINER_SIZE) return all;
+      if (typeof totalSize === "number" && all.length >= totalSize) return all;
+    }
+
+    throw new Error(
+      `Plex listing ${endpoint} did not finish within ${PLEX_MAX_PAGES} pages of ${PLEX_CONTAINER_SIZE} items`
+    );
+  }
+
   private async getShowsByRatingKey(libraryKey: string): Promise<Map<string, PlexShow>> {
-    const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, {
+    const items = await this.fetchAllPages(`/library/sections/${libraryKey}/all`, {
       type: 2,
       includeGuids: 1,
-      "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
     });
-    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
     const shows = new Map<string, PlexShow>();
 
-    for (const item of container.MediaContainer?.Metadata || []) {
+    for (const item of items) {
       if (item.ratingKey === undefined || item.ratingKey === null) continue;
       const ratingKey = String(item.ratingKey);
       shows.set(ratingKey, {

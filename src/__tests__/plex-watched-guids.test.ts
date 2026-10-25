@@ -3,7 +3,7 @@ import { PlexClient } from "../plex/client.js";
 import { PLEX_CONTAINER_SIZE } from "../plex/constants.js";
 import { PlexToTraktMapper } from "../trakt/mapper.js";
 
-const page = { "X-Plex-Container-Size": PLEX_CONTAINER_SIZE };
+const page = { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": PLEX_CONTAINER_SIZE };
 
 const MOVIES = {
   MediaContainer: {

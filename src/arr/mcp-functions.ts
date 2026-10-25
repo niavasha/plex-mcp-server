@@ -50,6 +50,16 @@ function requireTagId(id: unknown): number {
   return id;
 }
 
+/** A tag could not be created; carries the cleanup outcome for the tags created before it. */
+class TagCreationError extends Error {
+  constructor(
+    cause: unknown,
+    readonly cleanup: { removedTags?: string[]; leftTags?: string[] }
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
 /**
  * Resolve tag labels for an add request to tag IDs. Labels match existing tags
  * case-insensitively (the services lowercase labels); missing ones are created.
@@ -57,7 +67,7 @@ function requireTagId(id: unknown): number {
 async function resolveTagLabels(
   client: ArrServiceClient,
   tags: unknown
-): Promise<{ ids: number[]; labels: string[]; created: string[] } | undefined> {
+): Promise<{ ids: number[]; labels: string[]; created: ArrTag[] } | undefined> {
   if (tags === undefined) return undefined;
   if (!Array.isArray(tags)) {
     throw new Error("tags must be an array of tag labels");
@@ -67,22 +77,58 @@ async function resolveTagLabels(
 
   const existing = new Map((await client.getTags()).map((t) => [t.label.toLowerCase(), t]));
   const resolved: ArrTag[] = [];
-  const created: string[] = [];
+  const created: ArrTag[] = [];
   for (const label of labels) {
     let tag = existing.get(label.toLowerCase());
     if (!tag) {
-      tag = await client.createTag(label);
-      created.push(tag.label);
+      try {
+        tag = await client.createTag(label);
+      } catch (error) {
+        throw new TagCreationError(error, await removeCreatedTags(client, created));
+      }
+      created.push(tag);
     }
     resolved.push(tag);
   }
   return { ids: resolved.map((t) => t.id), labels: resolved.map((t) => t.label), created };
 }
 
-/** Series and movies store tag IDs; callers only know labels. */
+/**
+ * After a failed add, delete the tags this request created, by the IDs the
+ * service returned for them. Tags that already existed are never touched.
+ * Never throws: the add error is what the caller needs to see.
+ */
+async function removeCreatedTags(
+  client: ArrServiceClient,
+  created: ArrTag[] | undefined
+): Promise<{ removedTags?: string[]; leftTags?: string[] }> {
+  if (!created?.length) return {};
+  const removed: string[] = [];
+  const left: string[] = [];
+  for (const tag of created) {
+    try {
+      await client.deleteTag(tag.id);
+      removed.push(tag.label);
+    } catch {
+      left.push(tag.label);
+    }
+  }
+  return { ...(removed.length && { removedTags: removed }), ...(left.length && { leftTags: left }) };
+}
+
+/** The tag list only decorates a listing, so losing it must not fail the listing. */
+async function getTagsOrNone(client: ArrServiceClient): Promise<ArrTag[]> {
+  try {
+    return await client.getTags();
+  } catch {
+    return [];
+  }
+}
+
+/** Series and movies store tag IDs; callers only know labels. Unknown IDs show as the ID. */
 function tagLabels(ids: number[], tags: ArrTag[]): string[] {
   const labelById = new Map(tags.map((t) => [t.id, t.label]));
-  return ids.map((id) => labelById.get(id)!);
+  return ids.map((id) => labelById.get(id) ?? String(id));
 }
 
 const listTags = (client: ArrServiceClient) =>
@@ -176,7 +222,7 @@ export class ArrMCPFunctions {
     const client = this.ensureSonarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      const [allSeries, tagList] = await Promise.all([client.getSeries(), client.getTags()]);
+      const [allSeries, tagList] = await Promise.all([client.getSeries(), getTagsOrNone(client)]);
       let series = allSeries;
       if (args.filter) {
         const f = args.filter.toLowerCase();
@@ -304,11 +350,20 @@ export class ArrMCPFunctions {
         },
       };
 
-      const series = await client.addSeries(request);
+      let series;
+      try {
+        series = await client.addSeries(request);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          ...(await removeCreatedTags(client, tags?.created)),
+        };
+      }
       return {
         success: true,
         message: `Added "${series.title}" (${series.year}) to Sonarr`,
-        ...(tags?.created.length && { createdTags: tags.created }),
+        ...(tags?.created.length && { createdTags: tags.created.map((t) => t.label) }),
         series: {
           id: series.id,
           title: series.title,
@@ -324,6 +379,7 @@ export class ArrMCPFunctions {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof TagCreationError && error.cleanup),
       };
     }
   }
@@ -511,7 +567,7 @@ export class ArrMCPFunctions {
     const client = this.ensureRadarr();
     const limit = args.limit || ARR_PREVIEW_LIMIT;
     try {
-      const [allMovies, tagList] = await Promise.all([client.getMovies(), client.getTags()]);
+      const [allMovies, tagList] = await Promise.all([client.getMovies(), getTagsOrNone(client)]);
       let movies = allMovies;
       if (args.filter) {
         const f = args.filter.toLowerCase();
@@ -631,11 +687,20 @@ export class ArrMCPFunctions {
         },
       };
 
-      const movie = await client.addMovie(request);
+      let movie;
+      try {
+        movie = await client.addMovie(request);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          ...(await removeCreatedTags(client, tags?.created)),
+        };
+      }
       return {
         success: true,
         message: `Added "${movie.title}" (${movie.year}) to Radarr`,
-        ...(tags?.created.length && { createdTags: tags.created }),
+        ...(tags?.created.length && { createdTags: tags.created.map((t) => t.label) }),
         movie: {
           id: movie.id,
           title: movie.title,
@@ -651,6 +716,7 @@ export class ArrMCPFunctions {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof TagCreationError && error.cleanup),
       };
     }
   }
