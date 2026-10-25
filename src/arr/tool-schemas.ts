@@ -56,7 +56,7 @@ export const SONARR_TOOL_SCHEMAS = [
           enum: ["standard", "daily", "anime"],
         },
         searchForMissingEpisodes: { type: "boolean", description: "Search for missing episodes after adding (default: true)", default: true },
-        searchForCutoffUnmetEpisodes: { type: "boolean", description: "Search for cutoff unmet episodes after adding (default: false)", default: false },
+        searchForCutoffUnmetEpisodes: { type: "boolean", description: "After adding, search for upgrades to monitored episodes whose existing files are below the quality profile's cutoff; no effect without files on disk (default: false)", default: false },
         tags: {
           type: "array",
           items: { type: "string" },
