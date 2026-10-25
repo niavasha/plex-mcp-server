@@ -18,6 +18,7 @@ export interface PlexMovie {
   title: string;
   year?: number;
   guid?: string;
+  Guid?: { id: string }[];
   imdbId?: string;
   tmdbId?: string;
   duration?: number;
@@ -34,6 +35,7 @@ export interface PlexShow {
   title: string;
   year?: number;
   guid?: string;
+  Guid?: { id: string }[];
   imdbId?: string;
   tvdbId?: number;
   tmdbId?: number;
@@ -52,6 +54,7 @@ export interface PlexEpisode {
   viewCount?: number;
   lastViewedAt?: number;
   guid?: string;
+  Guid?: { id: string }[];
   imdbId?: string;
   tvdbId?: number;
   tmdbId?: number;
@@ -80,28 +83,24 @@ export interface PlexWatchSession {
 export class PlexToTraktMapper {
   
   /**
-   * Extract external IDs from Plex GUID
-   * Plex GUIDs look like: com.plexapp.agents.imdb://tt1234567?lang=en
+   * Extract IMDb, TMDB, and TVDB ids from a legacy agent guid or imdb://, tmdb://, tvdb://.
    */
   private extractIdsFromGuid(guid?: string): Partial<TraktIds> {
     const ids: Partial<TraktIds> = {};
     
     if (!guid) return ids;
 
-    // IMDB ID extraction
     const imdbMatch = guid.match(/imdb:\/\/tt(\d+)/);
     if (imdbMatch) {
       ids.imdb = `tt${imdbMatch[1]}`;
     }
 
-    // TMDB ID extraction  
-    const tmdbMatch = guid.match(/themoviedb:\/\/(\d+)/);
+    const tmdbMatch = guid.match(/(?:themoviedb|tmdb):\/\/(\d+)/);
     if (tmdbMatch) {
       ids.tmdb = parseInt(tmdbMatch[1]);
     }
 
-    // TVDB ID extraction
-    const tvdbMatch = guid.match(/thetvdb:\/\/(\d+)/);
+    const tvdbMatch = guid.match(/(?:thetvdb|tvdb):\/\/(\d+)/);
     if (tvdbMatch) {
       ids.tvdb = parseInt(tvdbMatch[1]);
     }
@@ -115,9 +114,14 @@ export class PlexToTraktMapper {
   private extractAllIds(plexItem: PlexMovie | PlexShow | PlexEpisode): Partial<TraktIds> {
     const ids: Partial<TraktIds> = {};
 
-    // From GUID field
-    const guidIds = this.extractIdsFromGuid(plexItem.guid);
-    Object.assign(ids, guidIds);
+    Object.assign(ids, this.extractIdsFromGuid(plexItem.guid));
+
+    if (Array.isArray(plexItem.Guid)) {
+      for (const entry of plexItem.Guid) {
+        if (!entry || typeof entry.id !== 'string') continue;
+        Object.assign(ids, this.extractIdsFromGuid(entry.id));
+      }
+    }
 
     // From explicit ID fields (if available)
     if ('imdbId' in plexItem && plexItem.imdbId) {
