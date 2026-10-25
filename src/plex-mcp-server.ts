@@ -14,23 +14,18 @@ import {
   PlexClient,
   PlexTools,
   createPlexToolRegistry,
-  PLEX_TOOL_SCHEMAS,
-  PLEX_MUTATIVE_TOOL_SCHEMAS,
   DEFAULT_PLEX_URL,
-  isMutativeOpsEnabled,
 } from "./plex/index.js";
 import { startServer } from "./shared/transport.js";
 import { SERVER_VERSION } from "./shared/version.js";
-import { withAnnotations } from "./shared/tool-annotations.js";
+import { listedToolSchemas } from "./shared/tool-list.js";
 
 // Trakt integration
 import { TraktMCPFunctions } from "./trakt/mcp-functions.js";
-import { TRAKT_TOOL_SCHEMAS } from "./trakt/tool-schemas.js";
 import { createTraktToolRegistry } from "./trakt/tool-registry.js";
 
 // Arr integration (Sonarr/Radarr)
 import { ArrMCPFunctions } from "./arr/mcp-functions.js";
-import { ARR_TOOL_SCHEMAS } from "./arr/tool-schemas.js";
 import { createArrToolRegistry } from "./arr/tool-registry.js";
 
 class UnifiedMCPServer {
@@ -66,12 +61,7 @@ class UnifiedMCPServer {
     const arrRegistry = createArrToolRegistry(arrFunctions);
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: withAnnotations([
-        ...PLEX_TOOL_SCHEMAS,
-        ...PLEX_MUTATIVE_TOOL_SCHEMAS,
-        ...TRAKT_TOOL_SCHEMAS,
-        ...ARR_TOOL_SCHEMAS,
-      ]),
+      tools: listedToolSchemas(),
     }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
