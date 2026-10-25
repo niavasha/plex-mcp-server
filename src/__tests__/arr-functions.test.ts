@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ArrMCPFunctions } from "../arr/mcp-functions.js";
-import { RADARR_TOOL_SCHEMAS } from "../arr/tool-schemas.js";
+import { RADARR_TOOL_SCHEMAS, SONARR_TOOL_SCHEMAS } from "../arr/tool-schemas.js";
 import { ARR_PREVIEW_LIMIT, ARR_DEFAULT_PAGE_SIZE } from "../arr/constants.js";
 import { SUMMARY_PREVIEW_LENGTH } from "../plex/constants.js";
 
@@ -474,6 +474,14 @@ describe("ArrMCPFunctions", () => {
       await arr.radarrAddMovie({ tmdbId: 1, title: "Movie" });
       expect(addMovie.mock.calls[0][0].addOptions).not.toHaveProperty("monitor");
     });
+  });
+
+  it("advertises lastSeason, not the obsolete latestSeason, as a Sonarr monitor type", () => {
+    const sonarrAdd = SONARR_TOOL_SCHEMAS.find((s) => s.name === "sonarr_add_series")!;
+    const { enum: values } = (sonarrAdd.inputSchema.properties as Record<string, { enum?: string[] }>)
+      .monitorType;
+    expect(values).toContain("lastSeason");
+    expect(values).not.toContain("latestSeason");
   });
 
   it("does not advertise minimumAvailability values the Radarr API rejects", () => {

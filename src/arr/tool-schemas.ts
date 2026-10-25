@@ -46,7 +46,7 @@ export const SONARR_TOOL_SCHEMAS = [
           description: "Which episodes to monitor",
           enum: [
             "all", "future", "missing", "existing", "recent", "pilot", "firstSeason",
-            "lastSeason", "latestSeason", "monitorSpecials", "unmonitorSpecials", "none",
+            "lastSeason", "monitorSpecials", "unmonitorSpecials", "none",
           ],
           default: "all",
         },
