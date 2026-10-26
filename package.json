@@ -33,10 +33,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@toon-format/toon": "4.4.0",
     "axios": "^1.14.0",
-    "dotenv": "^18.0.7"
+    "dotenv": "^18.0.9"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
