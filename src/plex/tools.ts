@@ -63,6 +63,17 @@ function showContext(item: Record<string, unknown>) {
   return {};
 }
 
+/**
+ * Helper: whether a result of the unwatched=0 query is fully watched.
+ * Plex is exact for items without children (movies, episodes). It also lets
+ * partly watched shows and seasons through, and those carry leafCount and
+ * viewedLeafCount, so they are checked here.
+ */
+function isFullyWatched(item: Record<string, unknown>): boolean {
+  if (typeof item.leafCount !== "number") return true;
+  return item.leafCount > 0 && ((item.viewedLeafCount as number | undefined) ?? 0) >= item.leafCount;
+}
+
 type MetadataUpdateInput = {
   ratingKey: string;
   title?: string;
@@ -1098,9 +1109,16 @@ export class PlexTools {
   ): Promise<MCPResponse> {
     try {
       let endpoint = "/library/all";
+      // Plex omits viewOffset from finished items, so completion can't be judged from the
+      // returned items. Ask Plex instead, with the query behind its own "Recently Watched"
+      // hub: watched at least once (unwatched=0) and not in progress (viewOffset=0).
+      // Size is twice the limit because isFullyWatched can still drop partly watched shows.
       const params: Record<string, string | number> = {
+        "X-Plex-Container-Start": 0,
         "X-Plex-Container-Size": limit * 2,
         sort: "lastViewedAt:desc",
+        unwatched: 0,
+        viewOffset: 0,
       };
 
       if (libraryKey) {
@@ -1115,16 +1133,7 @@ export class PlexTools {
       const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
       let items = container.MediaContainer?.Metadata || [];
 
-      items = items.filter((item) => {
-        if (!(item.viewCount as number) || (item.viewCount as number) === 0) return false;
-        return isContentCompleted(
-          item.duration as number | undefined,
-          item.viewOffset as number | undefined,
-          item.viewCount as number | undefined
-        );
-      });
-
-      items = items.slice(0, limit);
+      items = items.filter(isFullyWatched).slice(0, limit);
 
       return jsonResponse({
         fullyWatched: items.map((item) => ({

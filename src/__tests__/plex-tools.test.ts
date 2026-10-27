@@ -718,6 +718,55 @@ describe("PlexTools", () => {
     });
   });
 
+  describe("getFullyWatched", () => {
+    // Plex omits viewOffset from finished items, so these have none.
+    const finished = (n: number) => ({ ratingKey: String(n), title: `Movie ${n}`, type: "movie", year: 2020, viewCount: 1, lastViewedAt: 2000 - n, duration: 7200000 });
+
+    it("asks Plex for watched items that are not in progress, newest first", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getFullyWatched("1", "movie", 5);
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toBe("/library/sections/1/all");
+      // The same query as Plex's own "Recently Watched" hub, plus the paging pair Plex needs to honour the size.
+      expect(call[1]).toMatchObject({
+        unwatched: 0,
+        viewOffset: 0,
+        sort: "lastViewedAt:desc",
+        type: 1,
+        "X-Plex-Container-Start": 0,
+        "X-Plex-Container-Size": 10,
+      });
+    });
+
+    it("returns finished items although Plex sends no viewOffset for them", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [finished(1), finished(2)] } });
+
+      const result = parseResponse(await tools.getFullyWatched("1", "movie"));
+      expect(result.totalCount).toBe(2);
+      expect(result.fullyWatched.map((item: { ratingKey: string }) => item.ratingKey)).toEqual(["1", "2"]);
+      expect(result.fullyWatched[0].completionPercent).toBe(100);
+    });
+
+    it("keeps shows and seasons only when every episode is watched", async () => {
+      const container = (ratingKey: string, leafCount: number, viewedLeafCount?: number) =>
+        ({ ratingKey, title: ratingKey, type: "show", viewCount: 5, leafCount, viewedLeafCount });
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [container("all", 10, 10), container("partly", 10, 4), container("none", 10), container("empty", 0, 0)] },
+      });
+
+      const result = parseResponse(await tools.getFullyWatched("2", "show"));
+      expect(result.fullyWatched.map((item: { ratingKey: string }) => item.ratingKey)).toEqual(["all"]);
+    });
+
+    it("returns no more than the limit", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [1, 2, 3, 4, 5, 6].map(finished) } });
+
+      const result = parseResponse(await tools.getFullyWatched("1", "movie", 3));
+      expect(result.fullyWatched).toHaveLength(3);
+    });
+  });
+
   /**
    * createPlaylist — issue #48
    *
