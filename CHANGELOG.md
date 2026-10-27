@@ -8,9 +8,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 * add Sonarr and Radarr tag management tools ([24ad2d6](https://github.com/niavasha/plex-mcp-server/commit/24ad2d6fc3ae64d8b1bc471a01727594d63675a9))
-* add tag management and Add form options to Sonarr/Radarr add tools ([99f27dc](https://github.com/niavasha/plex-mcp-server/commit/99f27dccf3f23fd0daa7f91432eed3adc9d92950))
 * include series type and tags in sonarr_get_series and radarr_get_movies ([1f258e9](https://github.com/niavasha/plex-mcp-server/commit/1f258e9f7e3c297b2326d81dfd87cb92a125c580))
-* make the HTTP MCP path configurable via --path / MCP_PATH ([2e95475](https://github.com/niavasha/plex-mcp-server/commit/2e954753585fcbe391d36c4b5af6b2ed99ff9e6c))
 * make the HTTP MCP path configurable via --path / MCP_PATH ([51f464e](https://github.com/niavasha/plex-mcp-server/commit/51f464e87840e9198276accf5ce157d5b12cafff))
 * support assigning tags when adding series and movies ([df20daa](https://github.com/niavasha/plex-mcp-server/commit/df20daad652d68cc8acc173d8f3cef781a57aa02))
 * support series type, cutoff-unmet search and more monitor options in sonarr_add_series ([d566535](https://github.com/niavasha/plex-mcp-server/commit/d5665359aec4495e39c273665e64b85873ec7fe1))
@@ -28,9 +26,7 @@ All notable changes to this project will be documented in this file.
 * **deps:** bump ip-address from 10.7.2 to 10.7.5 ([#191](https://github.com/niavasha/plex-mcp-server/issues/191)) ([c091423](https://github.com/niavasha/plex-mcp-server/commit/c091423d54c74f0fd27640766b3c98a5a529b563))
 * **deps:** bump the production-dependencies group with 2 updates ([#195](https://github.com/niavasha/plex-mcp-server/issues/195)) ([27fe19b](https://github.com/niavasha/plex-mcp-server/commit/27fe19b15ca4263080596079fdb1061e60bcf50e))
 * **deps:** bump zod from 3.25.64 to 4.6.7 ([#190](https://github.com/niavasha/plex-mcp-server/issues/190)) ([3e6a4ff](https://github.com/niavasha/plex-mcp-server/commit/3e6a4ff0e0700d163c727d36f0c6538bea4c9949))
-* follow-ups from the reviews of [#179](https://github.com/niavasha/plex-mcp-server/issues/179), [#185](https://github.com/niavasha/plex-mcp-server/issues/185) and [#187](https://github.com/niavasha/plex-mcp-server/issues/187) ([cb9b460](https://github.com/niavasha/plex-mcp-server/commit/cb9b460aa5b1fd0d2b9268e715922a44c5186661))
 * keep Sonarr/Radarr listings working without tags; clean up failed adds ([caf91fc](https://github.com/niavasha/plex-mcp-server/commit/caf91fce94da220ed18b75db7ff712af441fc419))
-* only list write tools when PLEX_ENABLE_MUTATIVE_OPS is enabled ([27b6319](https://github.com/niavasha/plex-mcp-server/commit/27b6319a85fab3414987df082319f5b5e1216266))
 * only list write tools when PLEX_ENABLE_MUTATIVE_OPS is enabled ([5e00ba9](https://github.com/niavasha/plex-mcp-server/commit/5e00ba9274dfb525e5c75e47bc3ac0ccd8e02ada))
 * page through Plex libraries larger than one page in Trakt sync ([2533aeb](https://github.com/niavasha/plex-mcp-server/commit/2533aebc1dcaceaeb5fd687999fb592f97998657))
 * report the package version in the MCP handshake ([6ebea44](https://github.com/niavasha/plex-mcp-server/commit/6ebea44db7913de724bacb00b275351089d818e9))
