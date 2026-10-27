@@ -32,6 +32,37 @@ function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
 }
 
+/** Helper: "/library/metadata/32820" -> "32820"; undefined for any other shape. */
+function ratingKeyFromKey(key: unknown): string | undefined {
+  return typeof key === "string" ? key.match(/^\/library\/metadata\/(\d+)$/)?.[1] : undefined;
+}
+
+/**
+ * Helper: the fields that tie an episode or season to its show.
+ * Plex's raw parent/grandparent fields change meaning with the item type
+ * (an episode's parentTitle is "Season 1", a season's is the show name), so
+ * they are normalised here. Empty for movies and shows, so nothing is added.
+ */
+function showContext(item: Record<string, unknown>) {
+  if (item.type === "episode") {
+    return {
+      showTitle: item.grandparentTitle,
+      // History entries carry grandparentKey ("/library/metadata/<id>") but no grandparentRatingKey.
+      showRatingKey: item.grandparentRatingKey ?? ratingKeyFromKey(item.grandparentKey),
+      seasonNumber: item.parentIndex,
+      episodeNumber: item.index,
+    };
+  }
+  if (item.type === "season") {
+    return {
+      showTitle: item.parentTitle,
+      showRatingKey: item.parentRatingKey,
+      seasonNumber: item.index,
+    };
+  }
+  return {};
+}
+
 type MetadataUpdateInput = {
   ratingKey: string;
   title?: string;
@@ -120,6 +151,7 @@ export class PlexTools {
         originalTitle: item.originalTitle,
         year: item.year,
         type: item.type,
+        ...showContext(item),
         guid: item.guid,
         editionTitle: item.editionTitle,
       })),
@@ -200,6 +232,7 @@ export class PlexTools {
               title: item.title,
               year: item.year,
               type: item.type,
+              ...showContext(item),
               guid: item.guid,
               originalTitle: item.originalTitle,
               editionTitle: item.editionTitle,
@@ -274,6 +307,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
         rating: item.rating,
@@ -317,6 +351,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         duration: item.duration,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
@@ -408,6 +443,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         addedAt: item.addedAt,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
@@ -425,6 +461,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         viewOffset: item.viewOffset,
         duration: item.duration,
         lastViewedAt: item.lastViewedAt,
@@ -499,6 +536,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         summary: item.summary,
         rating: item.rating,
@@ -998,6 +1036,7 @@ export class PlexTools {
           ratingKey: session.ratingKey,
           title: session.title,
           type: session.type,
+          ...showContext(session),
           year: session.year,
           viewedAt: session.viewedAt,
           duration: session.duration,
@@ -1074,6 +1113,7 @@ export class PlexTools {
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           viewCount: item.viewCount,
           lastViewedAt: item.lastViewedAt,
@@ -1263,6 +1303,7 @@ export class PlexTools {
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           viewCount: item.viewCount,
           lastViewedAt: item.lastViewedAt,
@@ -1603,6 +1644,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         lastViewedAt: item.lastViewedAt,
         viewCount: item.viewCount,
@@ -1651,6 +1693,7 @@ export class PlexTools {
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           lastViewedAt: item.lastViewedAt,
           viewCount: item.viewCount,
@@ -1670,15 +1713,8 @@ export class PlexTools {
 
     return jsonResponse({
       watchHistory: allViewedItems.map((item) => ({
-        ratingKey: item.ratingKey,
-        title: item.title,
-        type: item.type,
-        year: item.year,
-        lastViewedAt: item.lastViewedAt,
-        viewCount: item.viewCount,
-        duration: item.duration,
-        viewOffset: item.viewOffset,
-        library: item.library,
+        // Already shaped (incl. showContext) by the historyItems map above.
+        ...item,
         progress:
           (item.viewOffset as number) && (item.duration as number)
             ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
@@ -1738,6 +1774,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         viewCount: item.viewCount,
         lastViewedAt: item.lastViewedAt,
