@@ -22,11 +22,32 @@ jobs:
       pull-requests: write   # maintain the release PR
       actions: write         # dispatch publish.yml
     steps:
+      # Preferred identity: a private GitHub App installed on this repo only
+      # (Contents + Pull requests: read & write). Its token lasts an hour and is
+      # minted per run, so nothing expires and nothing is tied to a person.
+      # Configure with the repo *variable* RELEASE_APP_CLIENT_ID (variables,
+      # unlike secrets, can gate a step) and the secret RELEASE_APP_PRIVATE_KEY.
+      # Only the variable gates the step: unset, the step is skipped and the
+      # fallbacks below apply. Set, the key must be valid and the App installed,
+      # or the job fails — deliberately, since a silent fallback would put
+      # releases back behind manual approval without anyone noticing.
+      - name: Mint a release token from the GitHub App
+        id: app-token
+        if: ${{ vars.RELEASE_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Cap the token here, so widening the App's installation permissions
+          # later cannot widen what this workflow holds.
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Create or update the release PR, and release on merge
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          # Prefer RELEASE_TOKEN when it exists, else fall back to GITHUB_TOKEN.
+          # Prefer the App token, then RELEASE_TOKEN, else fall back to GITHUB_TOKEN.
           #
           # A release PR opened by GITHUB_TOKEN is authored by
           # `github-actions[bot]`, and every workflow run on such a PR is held
@@ -39,13 +60,14 @@ jobs:
           # Verified 2026-07-31 over 100 PR runs: github-actions[bot] had 16
           # runs at action_required, dependabot[bot] had 0 — so this is
           # specific to the GITHUB_TOKEN actor, not a fork or contributor
-          # policy. A PR opened under any other identity is not gated.
+          # policy. That evidence is GitHub's own Dependabot, so confirm on the
+          # first App-authored release PR that its runs start unapproved.
           #
           # RELEASE_TOKEN may be either a fine-grained PAT or a GitHub App
           # installation token; both need contents:write + pull_requests:write.
           # Unset is safe: releases still work, they just need each run
           # approving by hand.
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Everything below runs only on the push that merges the release PR.
       #
@@ -58,7 +80,11 @@ jobs:
       #
       # workflow_dispatch is used because a release created with GITHUB_TOKEN
       # does not raise a `release` event that starts workflows, but dispatches
-      # are explicitly exempt from that rule.
+      # are explicitly exempt from that rule. A release created with the App
+      # token or RELEASE_TOKEN does raise `release: published`, so publish.yml
+      # then starts twice. It serialises per tag and skips a version already on
+      # npm, so there is no duplicate npm publish, but the second run rebuilds
+      # the ghcr.io image and re-pushes its tags.
       - name: Publish the release via publish.yml
         if: ${{ steps.release.outputs.release_created }}
         env:
