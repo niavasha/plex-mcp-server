@@ -617,6 +617,39 @@ describe("PlexTools", () => {
       // Plex returns the whole history (12k entries on a real server) when only Size is sent.
       expect(call[1]).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 25 });
     });
+
+    describe("when the history endpoint fails", () => {
+      let errorSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        errorSpy.mockRestore();
+      });
+
+      it("logs the failure to stderr and falls back to library metadata", async () => {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+          if (path === "/status/sessions/history/all") throw new Error("Request failed with status code 400");
+          if (path === "/library/sections") return { MediaContainer: { Directory: [] } };
+          throw new Error(`unexpected ${path}`);
+        });
+
+        const result = parseResponse(await tools.getWatchHistory());
+        expect(result.totalSessions).toBe(0);
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Request failed with status code 400"));
+      });
+
+      it("logs both failures when the library fallback fails too", async () => {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("connection refused"));
+
+        const result = parseResponse(await tools.getWatchHistory());
+        expect(result.error).toBe("Watch history not available");
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+        expect(errorSpy).toHaveBeenLastCalledWith(expect.stringContaining("library fallback failed: connection refused"));
+      });
+    });
   });
 
   describe("getRecentlyWatched", () => {
@@ -667,6 +700,21 @@ describe("PlexTools", () => {
       expect(result.note).toBe("Retrieved from library metadata");
       expect(result.totalCount).toBe(1);
       expect(result.recentlyWatched[0]).toMatchObject({ showTitle: "Breaking Bad", showRatingKey: "100", seasonNumber: 1, episodeNumber: 4 });
+    });
+
+    it("logs the history failure to stderr when it falls back", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+          if (path === "/status/sessions/history/all") throw new Error("Request failed with status code 400");
+          return { MediaContainer: { Directory: [] } };
+        });
+
+        await tools.getRecentlyWatched();
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Request failed with status code 400"));
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
   });
 

@@ -990,11 +990,13 @@ export class PlexTools {
         totalCount: history.totalSessions,
         note: "Retrieved from watch history data",
       });
-    } catch {
+    } catch (error) {
+      console.error(`get_recently_watched: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: library metadata approach
       try {
         return await this.getRecentlyWatchedFromLibraries(limit, mediaType);
-      } catch {
+      } catch (fallbackError) {
+        console.error(`get_recently_watched: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
         return jsonResponse({
           recentlyWatched: [],
           totalCount: 0,
@@ -1070,11 +1072,13 @@ export class PlexTools {
     try {
       // Primary: session history endpoint
       return jsonResponse(await this.fetchWatchHistory(limit, userId, mediaType));
-    } catch {
+    } catch (error) {
+      console.error(`get_watch_history: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: build pseudo-history from library metadata
       try {
         return await this.getWatchHistoryFromLibraries(limit, userId, mediaType);
-      } catch {
+      } catch (fallbackError) {
+        console.error(`get_watch_history: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
         return jsonResponse({
           error: "Watch history not available",
           message: "Unable to retrieve watch history from this Plex server",
