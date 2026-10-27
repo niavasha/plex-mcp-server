@@ -618,6 +618,50 @@ describe("PlexTools", () => {
       expect(call[1]).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 25 });
     });
 
+    describe("library fallback", () => {
+      const item = (ratingKey: string, viewOffset?: number) => ({
+        ratingKey, title: `Movie ${ratingKey}`, type: "movie", year: 2020, lastViewedAt: 1000, viewCount: 1, duration: 7200000, ...(viewOffset === undefined ? {} : { viewOffset }),
+      });
+
+      it("marks a show completed only when every episode is watched", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          const show = (ratingKey: string, viewedLeafCount: number) => ({ ratingKey, title: ratingKey, type: "show", lastViewedAt: 1000, viewCount: 9, duration: 1440000, leafCount: 10, viewedLeafCount });
+          (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+            if (requestPath === "/status/sessions/history/all") throw new Error("history unavailable");
+            if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+            return { MediaContainer: { Metadata: [show("all", 10), show("partly", 4)] } };
+          });
+
+          const result = parseResponse(await tools.getWatchHistory());
+          const byKey = Object.fromEntries(result.watchHistory.map((entry: { ratingKey: string }) => [entry.ratingKey, entry]));
+          expect(byKey.all.completed).toBe(true);
+          expect(byKey.partly.completed).toBe(false);
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+
+      it("marks finished items completed although Plex sends no viewOffset for them", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+            if (requestPath === "/status/sessions/history/all") throw new Error("history unavailable");
+            if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } };
+            return { MediaContainer: { Metadata: [item("finished"), item("almost", 7200000 * 0.95), item("halfway", 7200000 * 0.5)] } };
+          });
+
+          const result = parseResponse(await tools.getWatchHistory());
+          const byKey = Object.fromEntries(result.watchHistory.map((entry: { ratingKey: string }) => [entry.ratingKey, entry]));
+          expect(byKey.finished).toMatchObject({ completed: true, progress: 100 });
+          expect(byKey.almost).toMatchObject({ completed: true, progress: 95 });
+          expect(byKey.halfway).toMatchObject({ completed: false, progress: 50 });
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+    });
+
     describe("when the history endpoint fails", () => {
       let errorSpy: ReturnType<typeof vi.spyOn>;
 

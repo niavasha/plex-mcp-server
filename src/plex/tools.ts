@@ -1727,6 +1727,10 @@ export class PlexTools {
           duration: item.duration,
           viewOffset: item.viewOffset || 0,
           library: library.title,
+          // Judged here, from the raw item: shows and seasons need their leaf counts.
+          completed:
+            isFullyWatched(item) &&
+            isContentCompleted(item.duration as number | undefined, item.viewOffset as number | undefined, item.viewCount as number | undefined),
         }));
 
         allViewedItems.push(...historyItems);
@@ -1740,17 +1744,13 @@ export class PlexTools {
 
     return jsonResponse({
       watchHistory: allViewedItems.map((item) => ({
-        // Already shaped (incl. showContext) by the historyItems map above.
+        // Already shaped (incl. showContext and completed) by the historyItems map above.
         ...item,
+        // No viewOffset means the item is finished, as in getRecentlyWatchedFromLibraries.
         progress:
           (item.viewOffset as number) && (item.duration as number)
             ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
-            : 0,
-        completed: isContentCompleted(
-          item.duration as number | undefined,
-          item.viewOffset as number | undefined,
-          item.viewCount as number | undefined
-        ),
+            : 100,
       })),
       totalSessions: allViewedItems.length,
       note: "Generated from library metadata (fallback method)",
