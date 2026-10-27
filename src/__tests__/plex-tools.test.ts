@@ -598,6 +598,27 @@ describe("PlexTools", () => {
     });
   });
 
+  describe("getWatchHistory", () => {
+    it("sorts the history request by a field Plex accepts", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getWatchHistory(25, "7");
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toBe("/status/sessions/history/all");
+      // Plex answers HTTP 400 to sort=date:desc; its documented example is viewedAt:desc.
+      expect(call[1]).toMatchObject({ sort: "viewedAt:desc", "X-Plex-Container-Size": 25, accountID: "7" });
+    });
+
+    it("sends the paging pair Plex needs to honour the limit", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getWatchHistory(25);
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      // Plex returns the whole history (12k entries on a real server) when only Size is sent.
+      expect(call[1]).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 25 });
+    });
+  });
+
   describe("getRecentlyWatched", () => {
     const ORIGINAL_OUTPUT_FORMAT = process.env.PLEX_OUTPUT_FORMAT;
 

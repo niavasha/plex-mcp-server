@@ -1015,9 +1015,11 @@ export class PlexTools {
     userId: string | undefined,
     mediaType: string
   ): Promise<{ watchHistory: Record<string, unknown>[]; totalSessions: number }> {
+    // Plex ignores X-Plex-Container-Size here unless X-Plex-Container-Start is sent too.
     const params: Record<string, string | number> = {
+      "X-Plex-Container-Start": 0,
       "X-Plex-Container-Size": limit,
-      sort: "date:desc",
+      sort: "viewedAt:desc",
     };
     if (userId) {
       params.accountID = userId;
