@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { decode } from "@toon-format/toon";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexTools } from "../plex/tools.js";
@@ -594,6 +595,57 @@ describe("PlexTools", () => {
       const result = parseResponse(await tools.getWatchHistory());
       expect(result.note).toBe("Generated from library metadata (fallback method)");
       expect(result.watchHistory[0]).toMatchObject(episodeFields);
+    });
+  });
+
+  describe("getRecentlyWatched", () => {
+    const ORIGINAL_OUTPUT_FORMAT = process.env.PLEX_OUTPUT_FORMAT;
+
+    afterEach(() => {
+      if (ORIGINAL_OUTPUT_FORMAT === undefined) {
+        delete process.env.PLEX_OUTPUT_FORMAT;
+      } else {
+        process.env.PLEX_OUTPUT_FORMAT = ORIGINAL_OUTPUT_FORMAT;
+      }
+    });
+
+    const history = [1, 2, 3].map((n) => ({
+      ratingKey: String(n),
+      title: `Movie ${n}`,
+      type: "movie",
+      year: 2020,
+      viewedAt: 1000 - n,
+      duration: 100,
+      viewOffset: 100,
+    }));
+
+    it("uses the watch history whatever the output format", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: history } });
+
+      delete process.env.PLEX_OUTPUT_FORMAT;
+      const json = parseResponse(await tools.getRecentlyWatched());
+
+      process.env.PLEX_OUTPUT_FORMAT = "toon";
+      const toonText = (await tools.getRecentlyWatched()).content[0].text;
+      expect(() => JSON.parse(toonText)).toThrow(); // really is TOON, not JSON
+      const toon = decode(toonText) as typeof json;
+
+      expect(json.note).toBe("Retrieved from watch history data");
+      expect(json.totalCount).toBe(3);
+      expect(toon).toEqual(json);
+    });
+
+    it("falls back to library metadata when the history endpoint fails", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+        if (path === "/status/sessions/history/all") throw new Error("history unavailable");
+        if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+        return { MediaContainer: { Metadata: [{ ratingKey: "1", title: "Pilot", type: "episode", grandparentTitle: "Breaking Bad", grandparentRatingKey: "100", parentIndex: 1, index: 4, lastViewedAt: 1000, viewCount: 1, duration: 100 }] } };
+      });
+
+      const result = parseResponse(await tools.getRecentlyWatched(10, "episode"));
+      expect(result.note).toBe("Retrieved from library metadata");
+      expect(result.totalCount).toBe(1);
+      expect(result.recentlyWatched[0]).toMatchObject({ showTitle: "Breaking Bad", showRatingKey: "100", seasonNumber: 1, episodeNumber: 4 });
     });
   });
 

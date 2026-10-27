@@ -983,12 +983,11 @@ export class PlexTools {
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
     // Primary: use watch history endpoint
     try {
-      const historyResult = await this.getWatchHistory(limit, undefined, mediaType);
-      const historyData = JSON.parse(historyResult.content[0].text);
+      const history = await this.fetchWatchHistory(limit, undefined, mediaType);
 
       return jsonResponse({
-        recentlyWatched: historyData.watchHistory || [],
-        totalCount: historyData.totalSessions || 0,
+        recentlyWatched: history.watchHistory,
+        totalCount: history.totalSessions,
         note: "Retrieved from watch history data",
       });
     } catch {
@@ -1006,6 +1005,61 @@ export class PlexTools {
     }
   }
 
+  /**
+   * Session history from Plex's history endpoint, as data. Throws if the
+   * endpoint fails; callers choose their own fallback. Callers that need data
+   * use this and not getWatchHistory, whose text may be TOON instead of JSON.
+   */
+  private async fetchWatchHistory(
+    limit: number,
+    userId: string | undefined,
+    mediaType: string
+  ): Promise<{ watchHistory: Record<string, unknown>[]; totalSessions: number }> {
+    const params: Record<string, string | number> = {
+      "X-Plex-Container-Size": limit,
+      sort: "date:desc",
+    };
+    if (userId) {
+      params.accountID = userId;
+    }
+
+    const data = await this.client.makeRequest("/status/sessions/history/all", params);
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    let sessions = container.MediaContainer?.Metadata || [];
+
+    if (mediaType !== "all") {
+      const typeMap: Record<string, string> = { movie: "movie", show: "show", episode: "episode" };
+      sessions = sessions.filter((session) => session.type === typeMap[mediaType]);
+    }
+
+    return {
+      watchHistory: sessions.map((session) => ({
+        sessionKey: session.sessionKey,
+        ratingKey: session.ratingKey,
+        title: session.title,
+        type: session.type,
+        ...showContext(session),
+        year: session.year,
+        viewedAt: session.viewedAt,
+        duration: session.duration,
+        viewOffset: session.viewOffset,
+        user: (session.User as { title?: string } | undefined)?.title,
+        player: (session.Player as { title?: string } | undefined)?.title,
+        platform: (session.Player as { platform?: string } | undefined)?.platform,
+        progress:
+          (session.viewOffset as number) && (session.duration as number)
+            ? Math.round(((session.viewOffset as number) / (session.duration as number)) * 100)
+            : 0,
+        completed: isContentCompleted(
+          session.duration as number | undefined,
+          session.viewOffset as number | undefined,
+          1 // viewCount always > 0 for watched items
+        ),
+      })),
+      totalSessions: sessions.length,
+    };
+  }
+
   async getWatchHistory(
     limit: number = DEFAULT_LIMITS.watchHistory,
     userId?: string,
@@ -1013,49 +1067,7 @@ export class PlexTools {
   ): Promise<MCPResponse> {
     try {
       // Primary: session history endpoint
-      const params: Record<string, string | number> = {
-        "X-Plex-Container-Size": limit,
-        sort: "date:desc",
-      };
-      if (userId) {
-        params.accountID = userId;
-      }
-
-      const data = await this.client.makeRequest("/status/sessions/history/all", params);
-      const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-      let sessions = container.MediaContainer?.Metadata || [];
-
-      if (mediaType !== "all") {
-        const typeMap: Record<string, string> = { movie: "movie", show: "show", episode: "episode" };
-        sessions = sessions.filter((session) => session.type === typeMap[mediaType]);
-      }
-
-      return jsonResponse({
-        watchHistory: sessions.map((session) => ({
-          sessionKey: session.sessionKey,
-          ratingKey: session.ratingKey,
-          title: session.title,
-          type: session.type,
-          ...showContext(session),
-          year: session.year,
-          viewedAt: session.viewedAt,
-          duration: session.duration,
-          viewOffset: session.viewOffset,
-          user: (session.User as { title?: string } | undefined)?.title,
-          player: (session.Player as { title?: string } | undefined)?.title,
-          platform: (session.Player as { platform?: string } | undefined)?.platform,
-          progress:
-            (session.viewOffset as number) && (session.duration as number)
-              ? Math.round(((session.viewOffset as number) / (session.duration as number)) * 100)
-              : 0,
-          completed: isContentCompleted(
-            session.duration as number | undefined,
-            session.viewOffset as number | undefined,
-            1 // viewCount always > 0 for watched items
-          ),
-        })),
-        totalSessions: sessions.length,
-      });
+      return jsonResponse(await this.fetchWatchHistory(limit, userId, mediaType));
     } catch {
       // Fallback: build pseudo-history from library metadata
       try {
