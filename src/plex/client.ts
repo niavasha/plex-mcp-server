@@ -57,7 +57,10 @@ export class PlexClient implements PlexAPIClient {
   }
 
   getPlexTypeId(type: string): number {
-    return PLEX_TYPE_IDS[type] || 1;
+    if (!Object.hasOwn(PLEX_TYPE_IDS, type)) {
+      throw new Error(`Unknown media type "${type}". Expected one of: ${Object.keys(PLEX_TYPE_IDS).join(", ")}`);
+    }
+    return PLEX_TYPE_IDS[type];
   }
 
   // PlexAPIClient implementation for Trakt sync

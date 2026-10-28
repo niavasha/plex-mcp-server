@@ -66,14 +66,15 @@ describe("PLEX_TYPE_IDS", () => {
   it("maps all expected media types", () => {
     expect(PLEX_TYPE_IDS.movie).toBe(1);
     expect(PLEX_TYPE_IDS.show).toBe(2);
+    expect(PLEX_TYPE_IDS.season).toBe(3);
     expect(PLEX_TYPE_IDS.episode).toBe(4);
     expect(PLEX_TYPE_IDS.artist).toBe(8);
     expect(PLEX_TYPE_IDS.album).toBe(9);
     expect(PLEX_TYPE_IDS.track).toBe(10);
   });
 
-  it("has exactly 6 entries", () => {
-    expect(Object.keys(PLEX_TYPE_IDS)).toHaveLength(6);
+  it("has exactly 7 entries", () => {
+    expect(Object.keys(PLEX_TYPE_IDS)).toHaveLength(7);
   });
 });
 
