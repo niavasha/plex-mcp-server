@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_LIMITS, SUMMARY_PREVIEW_LENGTH, PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE } from "../plex/constants.js";
+import {
+  DEFAULT_LIMITS,
+  SUMMARY_PREVIEW_LENGTH,
+  PLEX_TYPE_IDS,
+  SMART_PLAYLIST_LIBTYPE_IDS,
+  PLEX_CONTAINER_SIZE,
+} from "../plex/constants.js";
 import { ARR_PREVIEW_LIMIT, ARR_DEFAULT_PAGE_SIZE } from "../arr/constants.js";
 import { TRAKT_PREVIEW_LIMIT } from "../trakt/constants.js";
 
@@ -68,6 +74,23 @@ describe("PLEX_TYPE_IDS", () => {
 
   it("has exactly 6 entries", () => {
     expect(Object.keys(PLEX_TYPE_IDS)).toHaveLength(6);
+  });
+});
+
+describe("SMART_PLAYLIST_LIBTYPE_IDS", () => {
+  // Ids from the "List of Metadata Types" in the Plex OpenAPI spec.
+  it("maps every libtype to its Plex metadata type id", () => {
+    expect(SMART_PLAYLIST_LIBTYPE_IDS).toEqual({
+      movie: 1,
+      show: 2,
+      season: 3,
+      episode: 4,
+      artist: 8,
+      album: 9,
+      track: 10,
+      photo: 13,
+      photoalbum: 14,
+    });
   });
 });
 

@@ -25,8 +25,8 @@ export const SMART_PLAYLIST_LIBTYPE_IDS: Record<string, number> = {
   artist: 8,
   album: 9,
   track: 10,
-  photoalbum: 13,
-  photo: 14,
+  photo: 13,
+  photoalbum: 14,
 };
 
 export const DEFAULT_LIMITS = {
