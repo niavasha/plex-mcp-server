@@ -13,6 +13,7 @@ import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
   PLEX_CONTAINER_SIZE,
+  PLEX_FILTERED_SCAN_MAX_PAGES,
   SUMMARY_PREVIEW_LENGTH,
   PLEX_MUTATIVE_OPS_ENV_VAR,
   isMutativeOpsEnabled,
@@ -72,6 +73,35 @@ function showContext(item: Record<string, unknown>) {
 function isFullyWatched(item: Record<string, unknown>): boolean {
   if (typeof item.leafCount !== "number") return true;
   return item.leafCount > 0 && ((item.viewedLeafCount as number | undefined) ?? 0) >= item.leafCount;
+}
+
+/**
+ * Helper: percent watched for a library item. Uses the playback offset when there is
+ * one; shows and seasons have none, so they use the share of episodes watched. Items
+ * with neither are finished, since Plex omits viewOffset once something is watched.
+ */
+function progressPercent(item: Record<string, unknown>): number {
+  if ((item.viewOffset as number) && (item.duration as number)) {
+    return Math.round(((item.viewOffset as number) / (item.duration as number)) * 100);
+  }
+  if (typeof item.leafCount === "number" && item.leafCount > 0) {
+    return Math.round((((item.viewedLeafCount as number | undefined) ?? 0) / item.leafCount) * 100);
+  }
+  return 100;
+}
+
+/** The history row type each history filter matches. TV shows appear as their episodes. */
+const HISTORY_ROW_TYPES: Record<string, string> = { movie: "movie", show: "episode", episode: "episode", track: "track" };
+
+/** Helper: the history row type for a mediaType, or undefined for "all". Throws on anything else. */
+function historyRowType(mediaType: string): string | undefined {
+  if (mediaType === "all") return undefined;
+  if (!Object.hasOwn(HISTORY_ROW_TYPES, mediaType)) {
+    throw new Error(
+      `Unknown media type "${mediaType}" for watch history. Expected one of: all, ${Object.keys(HISTORY_ROW_TYPES).join(", ")}`
+    );
+  }
+  return HISTORY_ROW_TYPES[mediaType];
 }
 
 type MetadataUpdateInput = {
@@ -992,13 +1022,17 @@ export class PlexTools {
   }
 
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
+    // Resolved before the try so an unknown type isn't swallowed by the fallback below.
+    const rowType = historyRowType(mediaType);
+
     // Primary: use watch history endpoint
     try {
-      const history = await this.fetchWatchHistory(limit, undefined, mediaType);
+      const history = await this.fetchWatchHistory(limit, undefined, rowType);
 
       return jsonResponse({
         recentlyWatched: history.watchHistory,
         totalCount: history.totalSessions,
+        ...(history.scanCapped && { scanCapped: true }),
         note: "Retrieved from watch history data",
       });
     } catch (error) {
@@ -1019,6 +1053,54 @@ export class PlexTools {
   }
 
   /**
+   * Page through a listing, keeping rows that pass `keep`, until `limit` are kept or the
+   * listing ends. For filters Plex can't apply itself. Stops on a short page, on Plex's
+   * totalSize, on a page identical to the last (Plex ignored the offset), or after
+   * PLEX_FILTERED_SCAN_MAX_PAGES. The last two are reported as scanCapped, since the
+   * listing may hold more matches.
+   */
+  private async collectFiltered(
+    endpoint: string,
+    params: Record<string, string | number>,
+    pageSize: number,
+    keep: (row: Record<string, unknown>) => boolean,
+    limit: number
+  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
+    const kept: Record<string, unknown>[] = [];
+    let received = 0;
+    let previousKeys: string | undefined;
+    let finished = false;
+
+    for (let page = 0; page < PLEX_FILTERED_SCAN_MAX_PAGES; page++) {
+      const data = await this.client.makeRequest(endpoint, {
+        ...params,
+        "X-Plex-Container-Start": received,
+        "X-Plex-Container-Size": pageSize,
+      });
+      const container = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: unknown } })
+        .MediaContainer;
+      const rows = container?.Metadata || [];
+
+      const keys = JSON.stringify(rows.map((row) => row.historyKey ?? row.ratingKey));
+      if (keys === previousKeys) {
+        break;
+      }
+      previousKeys = keys;
+
+      kept.push(...rows.filter(keep));
+      received += rows.length;
+
+      const totalSize = container?.totalSize;
+      if (kept.length >= limit || rows.length < pageSize || (typeof totalSize === "number" && received >= totalSize)) {
+        finished = true;
+        break;
+      }
+    }
+
+    return { rows: kept.slice(0, limit), scanCapped: !finished };
+  }
+
+  /**
    * Session history from Plex's history endpoint, as data. Throws if the
    * endpoint fails; callers choose their own fallback. Callers that need data
    * use this and not getWatchHistory, whose text may be TOON instead of JSON.
@@ -1026,28 +1108,39 @@ export class PlexTools {
   private async fetchWatchHistory(
     limit: number,
     userId: string | undefined,
-    mediaType: string
-  ): Promise<{ watchHistory: Record<string, unknown>[]; totalSessions: number }> {
-    // Plex ignores X-Plex-Container-Size here unless X-Plex-Container-Start is sent too.
-    const params: Record<string, string | number> = {
-      "X-Plex-Container-Start": 0,
-      "X-Plex-Container-Size": limit,
-      sort: "viewedAt:desc",
-    };
+    rowType: string | undefined
+  ): Promise<{ watchHistory: Record<string, unknown>[]; totalSessions: number; scanCapped?: boolean }> {
+    const endpoint = "/status/sessions/history/all";
+    const params: Record<string, string | number> = { sort: "viewedAt:desc" };
     if (userId) {
       params.accountID = userId;
     }
 
-    const data = await this.client.makeRequest("/status/sessions/history/all", params);
-    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-    let sessions = container.MediaContainer?.Metadata || [];
-
-    if (mediaType !== "all") {
-      const typeMap: Record<string, string> = { movie: "movie", show: "show", episode: "episode" };
-      sessions = sessions.filter((session) => session.type === typeMap[mediaType]);
+    let sessions: Record<string, unknown>[];
+    let scanCapped = false;
+    if (rowType === undefined) {
+      // Plex ignores X-Plex-Container-Size here unless X-Plex-Container-Start is sent too.
+      const data = await this.client.makeRequest(endpoint, {
+        ...params,
+        "X-Plex-Container-Start": 0,
+        "X-Plex-Container-Size": limit,
+      });
+      const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+      sessions = container.MediaContainer?.Metadata || [];
+    } else {
+      // The type filter is ours, not Plex's, so page until there are enough matches.
+      const pageLimit = Math.max(1, limit);
+      ({ rows: sessions, scanCapped } = await this.collectFiltered(
+        endpoint,
+        params,
+        Math.max(pageLimit, 100),
+        (session) => session.type === rowType,
+        pageLimit
+      ));
     }
 
     return {
+      ...(scanCapped && { scanCapped: true }),
       watchHistory: sessions.map((session) => ({
         sessionKey: session.sessionKey,
         ratingKey: session.ratingKey,
@@ -1080,9 +1173,12 @@ export class PlexTools {
     userId?: string,
     mediaType: string = "all"
   ): Promise<MCPResponse> {
+    // Resolved before the try so an unknown type isn't swallowed by the fallback below.
+    const rowType = historyRowType(mediaType);
+
     try {
       // Primary: session history endpoint
-      return jsonResponse(await this.fetchWatchHistory(limit, userId, mediaType));
+      return jsonResponse(await this.fetchWatchHistory(limit, userId, rowType));
     } catch (error) {
       console.error(`get_watch_history: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: build pseudo-history from library metadata
@@ -1115,10 +1211,7 @@ export class PlexTools {
       // Plex omits viewOffset from finished items, so completion can't be judged from the
       // returned items. Ask Plex instead, with the query behind its own "Recently Watched"
       // hub: watched at least once (unwatched=0) and not in progress (viewOffset=0).
-      // Size is twice the limit because isFullyWatched can still drop partly watched shows.
       const params: Record<string, string | number> = {
-        "X-Plex-Container-Start": 0,
-        "X-Plex-Container-Size": limit * 2,
         sort: "lastViewedAt:desc",
         unwatched: 0,
         viewOffset: 0,
@@ -1132,13 +1225,13 @@ export class PlexTools {
         params.type = typeId;
       }
 
-      const data = await this.client.makeRequest(endpoint, params);
-      const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-      let items = container.MediaContainer?.Metadata || [];
-
-      items = items.filter(isFullyWatched).slice(0, limit);
+      // isFullyWatched can still drop partly watched shows, so page in twice the limit
+      // until enough survive.
+      const pageLimit = Math.max(1, limit);
+      const { rows: items, scanCapped } = await this.collectFiltered(endpoint, params, pageLimit * 2, isFullyWatched, pageLimit);
 
       return jsonResponse({
+        ...(scanCapped && { scanCapped: true }),
         fullyWatched: items.map((item) => ({
           ratingKey: item.ratingKey,
           title: item.title,
@@ -1643,6 +1736,8 @@ export class PlexTools {
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     let allRecentItems: Record<string, unknown>[] = [];
+    // Resolved outside the loop, whose catch would otherwise skip every library for a bad type.
+    const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
     for (const library of libraries) {
       try {
@@ -1650,8 +1745,8 @@ export class PlexTools {
           sort: "lastViewedAt:desc",
           "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 5,
         };
-        if (mediaType !== "all") {
-          params.type = this.client.getPlexTypeId(mediaType);
+        if (typeId !== undefined) {
+          params.type = typeId;
         }
 
         const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);
@@ -1681,10 +1776,7 @@ export class PlexTools {
         viewCount: item.viewCount,
         duration: item.duration,
         viewOffset: item.viewOffset || 0,
-        progress:
-          (item.viewOffset as number) && (item.duration as number)
-            ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
-            : 100,
+        progress: progressPercent(item),
       })),
       totalCount: allRecentItems.length,
       note: "Retrieved from library metadata",
@@ -1701,6 +1793,8 @@ export class PlexTools {
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     let allViewedItems: Record<string, unknown>[] = [];
+    // Resolved outside the loop, whose catch would otherwise skip every library for a bad type.
+    const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
     for (const library of libraries) {
       try {
@@ -1708,8 +1802,8 @@ export class PlexTools {
           "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 5,
           sort: "lastViewedAt:desc",
         };
-        if (mediaType !== "all") {
-          params.type = this.client.getPlexTypeId(mediaType);
+        if (typeId !== undefined) {
+          params.type = typeId;
         }
 
         const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);
@@ -1735,6 +1829,7 @@ export class PlexTools {
           completed:
             isFullyWatched(item) &&
             isContentCompleted(item.duration as number | undefined, item.viewOffset as number | undefined, item.viewCount as number | undefined),
+          progress: progressPercent(item),
         }));
 
         allViewedItems.push(...historyItems);
@@ -1747,15 +1842,8 @@ export class PlexTools {
     allViewedItems = allViewedItems.slice(0, limit);
 
     return jsonResponse({
-      watchHistory: allViewedItems.map((item) => ({
-        // Already shaped (incl. showContext and completed) by the historyItems map above.
-        ...item,
-        // No viewOffset means the item is finished, as in getRecentlyWatchedFromLibraries.
-        progress:
-          (item.viewOffset as number) && (item.duration as number)
-            ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
-            : 100,
-      })),
+      // Already shaped (incl. showContext, completed and progress) by the historyItems map above.
+      watchHistory: allViewedItems,
       totalSessions: allViewedItems.length,
       note: "Generated from library metadata (fallback method)",
     });
@@ -1771,6 +1859,8 @@ export class PlexTools {
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     let allWatchedItems: Record<string, unknown>[] = [];
+    // Resolved outside the loop, whose catch would otherwise skip every library for a bad type.
+    const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
     for (const library of libraries) {
       try {
@@ -1780,8 +1870,8 @@ export class PlexTools {
           "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 10,
           sort: "addedAt:desc",
         };
-        if (mediaType !== "all") {
-          params.type = this.client.getPlexTypeId(mediaType);
+        if (typeId !== undefined) {
+          params.type = typeId;
         }
 
         const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);

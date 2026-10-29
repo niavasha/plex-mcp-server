@@ -55,6 +55,17 @@ describe("unknown media types in tools", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("getRecentlyWatched fails instead of returning an empty history", async () => {
+    await expect(tools.getRecentlyWatched(10, "tv")).rejects.toThrow('Unknown media type "tv"');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("getWatchHistory refuses types that never appear in watch history", async () => {
+    // Valid Plex types, but history rows are movies, episodes and tracks: this would scan for nothing.
+    await expect(tools.getWatchHistory(10, undefined, "season")).rejects.toThrow('Unknown media type "season"');
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("getPopularContent fails instead of skipping every library", async () => {
     request.mockResolvedValue({ MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } });
 

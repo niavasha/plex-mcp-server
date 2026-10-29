@@ -633,8 +633,9 @@ describe("PlexTools", () => {
 
           const result = parseResponse(await tools.getWatchHistory());
           const byKey = Object.fromEntries(result.watchHistory.map((entry: { ratingKey: string }) => [entry.ratingKey, entry]));
-          expect(byKey.all.completed).toBe(true);
-          expect(byKey.partly.completed).toBe(false);
+          expect(byKey.all).toMatchObject({ completed: true, progress: 100 });
+          // Shows have no viewOffset, so progress comes from the episodes watched.
+          expect(byKey.partly).toMatchObject({ completed: false, progress: 40 });
         } finally {
           errorSpy.mockRestore();
         }
@@ -742,6 +743,17 @@ describe("PlexTools", () => {
       expect(result.note).toBe("Retrieved from library metadata");
       expect(result.totalCount).toBe(1);
       expect(result.recentlyWatched[0]).toMatchObject({ showTitle: "Breaking Bad", showRatingKey: "100", seasonNumber: 1, episodeNumber: 4 });
+    });
+
+    it("reports a partly watched show's progress from its episodes in the fallback", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+        if (path === "/status/sessions/history/all") throw new Error("history unavailable");
+        if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+        return { MediaContainer: { Metadata: [{ ratingKey: "9", title: "Show", type: "show", lastViewedAt: 1000, viewCount: 4, leafCount: 10, viewedLeafCount: 4 }] } };
+      });
+
+      const result = parseResponse(await tools.getRecentlyWatched(10, "show"));
+      expect(result.recentlyWatched[0].progress).toBe(40);
     });
 
     it("logs the history failure to stderr when it falls back", async () => {
