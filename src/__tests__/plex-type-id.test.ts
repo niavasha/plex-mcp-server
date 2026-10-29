@@ -35,7 +35,8 @@ describe("unknown media types in tools", () => {
 
   beforeEach(() => {
     client = new PlexClient({ baseUrl: "http://localhost:32400", token: "test-token" });
-    request = vi.spyOn(client, "makeRequest");
+    // Fail rather than reach a real server if a regression lets a request through.
+    request = vi.spyOn(client, "makeRequest").mockRejectedValue(new Error("unexpected request"));
     tools = new PlexTools(client);
   });
 

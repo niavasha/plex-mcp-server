@@ -14,10 +14,8 @@ function createMockClient() {
     rateMedia: vi.fn(),
     markAsWatched: vi.fn(),
     markAsUnwatched: vi.fn(),
-    getPlexTypeId: vi.fn((type: string) => {
-      const ids: Record<string, number> = { movie: 1, show: 2, episode: 4 };
-      return ids[type] || 1;
-    }),
+    // The real resolver (it doesn't use `this`), so unknown types fail here as they do live.
+    getPlexTypeId: vi.fn((type: string) => PlexClient.prototype.getPlexTypeId.call(null, type)),
   } as unknown as PlexClient;
 }
 
