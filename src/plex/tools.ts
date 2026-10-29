@@ -1039,6 +1039,9 @@ export class PlexTools {
     mediaType: string = "all",
     limit: number = DEFAULT_LIMITS.fullyWatched
   ): Promise<MCPResponse> {
+    // Resolved before the try so an unknown type isn't swallowed by the fallback below.
+    const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
+
     try {
       let endpoint = "/library/all";
       const params: Record<string, string | number> = {
@@ -1050,8 +1053,8 @@ export class PlexTools {
         validatePlexId(libraryKey, "libraryKey");
         endpoint = `/library/sections/${libraryKey}/all`;
       }
-      if (mediaType !== "all") {
-        params.type = this.client.getPlexTypeId(mediaType);
+      if (typeId !== undefined) {
+        params.type = typeId;
       }
 
       const data = await this.client.makeRequest(endpoint, params);
@@ -1226,6 +1229,7 @@ export class PlexTools {
       const libraries = libContainer.MediaContainer?.Directory || [];
 
       let allContent: Record<string, unknown>[] = [];
+      const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
       for (const library of libraries) {
         try {
@@ -1233,8 +1237,8 @@ export class PlexTools {
             "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
             sort: metric === "plays" ? "viewCount:desc" : "lastViewedAt:desc",
           };
-          if (mediaType !== "all") {
-            params.type = this.client.getPlexTypeId(mediaType);
+          if (typeId !== undefined) {
+            params.type = typeId;
           }
 
           const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);

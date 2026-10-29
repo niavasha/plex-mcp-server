@@ -5,6 +5,7 @@
 export const PLEX_TYPE_IDS: Record<string, number> = {
   movie: 1,
   show: 2,
+  season: 3,
   episode: 4,
   artist: 8,
   album: 9,
@@ -14,7 +15,7 @@ export const PLEX_TYPE_IDS: Record<string, number> = {
 /**
  * Numeric libtype IDs used inside smart playlist search URIs
  * (e.g. /library/sections/1/all?type=N). This is a superset of PLEX_TYPE_IDS
- * — it includes season/photoalbum/photo which are valid smart-playlist filter
+ * — it includes photoalbum/photo which are valid smart-playlist filter
  * targets but are not exposed elsewhere.
  */
 export const SMART_PLAYLIST_LIBTYPE_IDS: Record<string, number> = {
@@ -25,8 +26,8 @@ export const SMART_PLAYLIST_LIBTYPE_IDS: Record<string, number> = {
   artist: 8,
   album: 9,
   track: 10,
-  photoalbum: 13,
-  photo: 14,
+  photo: 13,
+  photoalbum: 14,
 };
 
 export const DEFAULT_LIMITS = {
