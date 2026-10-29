@@ -71,7 +71,9 @@ export function isMutativeOpsEnabled(): boolean {
 /**
  * Determine if item is completed, accounting for short-duration content.
  * Items shorter than MIN_COMPLETION_DURATION_MS require only viewCount > 0.
- * Longer items require progress >= COMPLETION_THRESHOLD.
+ * Longer items require progress >= COMPLETION_THRESHOLD, unless there is no
+ * viewOffset: Plex omits it (or reports 0) once an item is finished, so viewCount > 0
+ * alone then means completed.
  */
 export function isContentCompleted(
   duration: number | undefined,
@@ -79,12 +81,17 @@ export function isContentCompleted(
   viewCount: number | undefined
 ): boolean {
   // No duration or view data → not completed
-  if (!duration || viewOffset === undefined || viewCount === undefined) {
+  if (!duration || viewCount === undefined) {
     return false;
   }
 
   // Only viewCount matters for short content
   if (duration < MIN_COMPLETION_DURATION_MS) {
+    return viewCount > 0;
+  }
+
+  // No offset → not in progress, so a watched item is a finished one
+  if (!viewOffset) {
     return viewCount > 0;
   }
 

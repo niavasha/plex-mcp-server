@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { decode } from "@toon-format/toon";
+import { readFile, rm } from "node:fs/promises";
+import path from "node:path";
 import { PlexTools } from "../plex/tools.js";
 import { PlexClient } from "../plex/client.js";
 import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
@@ -426,6 +429,385 @@ describe("PlexTools", () => {
       expect(result.onDeck[0]).toHaveProperty("ratingKey", "1");
       expect(result.onDeck[0]).toHaveProperty("viewOffset", 5000);
       expect(result.onDeck[0]).not.toHaveProperty("summary");
+    });
+  });
+
+  /**
+   * Episodes and seasons must say which show they belong to. Plex's raw
+   * parent/grandparent fields mean different things per item type, so the tools
+   * return normalised showTitle/showRatingKey/seasonNumber/episodeNumber instead.
+   */
+  describe("show context for episodes and seasons", () => {
+    const episode = { ratingKey: "1", title: "Pilot", type: "episode", grandparentTitle: "Breaking Bad", grandparentRatingKey: "100", parentTitle: "Season 1", parentIndex: 1, index: 4 };
+    const season = { ratingKey: "2", title: "Final Season", type: "season", parentTitle: "Beastars", parentRatingKey: "200", parentIndex: 1, index: 3 };
+    const show = { ratingKey: "3", title: "Some Show", type: "show", index: 1 };
+    const movie = { ratingKey: "4", title: "A Movie", type: "movie" };
+    const episodeFields = { showTitle: "Breaking Bad", showRatingKey: "100", seasonNumber: 1, episodeNumber: 4 };
+    const seasonFields = { showTitle: "Beastars", showRatingKey: "200", seasonNumber: 3 };
+    const showFieldNames = ["showTitle", "showRatingKey", "seasonNumber", "episodeNumber"];
+
+    function mockMetadata(items: Array<Record<string, unknown>>) {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: items } });
+    }
+
+    function expectNoShowFields(item: Record<string, unknown>) {
+      for (const name of showFieldNames) expect(item).not.toHaveProperty(name);
+    }
+
+    it("getOnDeck adds show info to episodes only", async () => {
+      mockMetadata([episode, movie]);
+      const result = parseResponse(await tools.getOnDeck());
+      expect(result.onDeck[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.onDeck[1]);
+    });
+
+    it("getRecentlyAdded adds show info to episodes and seasons", async () => {
+      mockMetadata([episode, season]);
+      const result = parseResponse(await tools.getRecentlyAdded());
+      expect(result.recentlyAdded[0]).toMatchObject(episodeFields);
+      expect(result.recentlyAdded[1]).toMatchObject(seasonFields);
+      expect(result.recentlyAdded[1]).not.toHaveProperty("episodeNumber");
+    });
+
+    it("getRecentlyAdded does not leak Plex's raw index fields for seasons, shows or movies", async () => {
+      mockMetadata([season, show, movie]);
+      const result = parseResponse(await tools.getRecentlyAdded());
+      for (const item of result.recentlyAdded) {
+        expect(item).not.toHaveProperty("index");
+        expect(item).not.toHaveProperty("parentIndex");
+      }
+      expectNoShowFields(result.recentlyAdded[1]);
+      expectNoShowFields(result.recentlyAdded[2]);
+    });
+
+    it("searchMedia adds show info to episodes only", async () => {
+      mockMetadata([episode, movie]);
+      const result = parseResponse(await tools.searchMedia("pilot"));
+      expect(result.results[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.results[1]);
+    });
+
+    it("getWatchHistory derives showRatingKey from grandparentKey, which is all Plex's history entries carry", async () => {
+      const { grandparentRatingKey: _omitted, ...historyEpisode } = episode;
+      mockMetadata([{ ...historyEpisode, grandparentKey: "/library/metadata/100", viewedAt: 1000 }]);
+      const result = parseResponse(await tools.getWatchHistory());
+      expect(result.watchHistory[0]).toMatchObject(episodeFields);
+    });
+
+    it("showRatingKey prefers grandparentRatingKey and ignores a grandparentKey of another shape", async () => {
+      mockMetadata([
+        { ...episode, grandparentKey: "/library/metadata/999" },
+        { ...episode, grandparentRatingKey: undefined, grandparentKey: "/somewhere/else/100" },
+      ]);
+      const result = parseResponse(await tools.getOnDeck());
+      expect(result.onDeck[0].showRatingKey).toBe("100");
+      expect(result.onDeck[1]).not.toHaveProperty("showRatingKey");
+    });
+
+    it("getLibraryItems adds show info to episodes only", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { totalSize: 2, Metadata: [episode, movie] } });
+      const result = parseResponse(await tools.getLibraryItems("2", "episode"));
+      expect(result.items[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.items[1]);
+    });
+
+    it("getMediaDetails adds show info to an episode", async () => {
+      mockMetadata([episode]);
+      const result = parseResponse(await tools.getMediaDetails("1"));
+      expect(result.details).toMatchObject(episodeFields);
+    });
+
+    it("getMediaDetails adds no show info to a movie", async () => {
+      mockMetadata([movie]);
+      const result = parseResponse(await tools.getMediaDetails("4"));
+      expectNoShowFields(result.details);
+    });
+
+    it("getPlaylistItems adds show info to episodes only", async () => {
+      mockMetadata([episode, movie]);
+      const result = parseResponse(await tools.getPlaylistItems("1"));
+      expect(result.items[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.items[1]);
+    });
+
+    it("getPopularContent adds show info to episodes only", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+        if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "2" }] } };
+        return { MediaContainer: { Metadata: [{ ...episode, viewCount: 3 }, { ...movie, viewCount: 2 }] } };
+      });
+      const result = parseResponse(await tools.getPopularContent());
+      expect(result.popularContent[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.popularContent[1]);
+    });
+
+    it("getFullyWatched adds show info to episodes only", async () => {
+      const watched = { viewCount: 1, duration: 100, viewOffset: 100 };
+      mockMetadata([{ ...episode, ...watched }, { ...movie, ...watched }]);
+      const result = parseResponse(await tools.getFullyWatched());
+      expect(result.fullyWatched[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.fullyWatched[1]);
+    });
+
+    it("getFullyWatched keeps show info in its library fallback", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+        if (requestPath === "/library/all") throw new Error("library listing unavailable");
+        if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "2" }] } };
+        return { MediaContainer: { Metadata: [{ ...episode, viewCount: 1 }] } };
+      });
+      const result = parseResponse(await tools.getFullyWatched(undefined, "episode"));
+      expect(result.note).toContain("fallback");
+      expect(result.fullyWatched[0]).toMatchObject(episodeFields);
+    });
+
+    it("exportLibrary writes show info for episodes only", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { totalSize: 2, Metadata: [episode, movie] } });
+      const outputPath = `show-context-test-${process.pid}.json`;
+      const exportFile = path.resolve(process.cwd(), "exports", outputPath);
+      try {
+        await tools.exportLibrary("2", "episode", outputPath);
+        const exported = JSON.parse(await readFile(exportFile, "utf8"));
+        expect(exported[0]).toMatchObject(episodeFields);
+        expectNoShowFields(exported[1]);
+      } finally {
+        await rm(exportFile, { force: true });
+      }
+    });
+
+    it("getWatchHistory adds show info to episodes only", async () => {
+      mockMetadata([{ ...episode, viewedAt: 1000 }, { ...movie, viewedAt: 900 }]);
+      const result = parseResponse(await tools.getWatchHistory());
+      expect(result.watchHistory[0]).toMatchObject(episodeFields);
+      expectNoShowFields(result.watchHistory[1]);
+    });
+
+    it("getRecentlyWatched adds show info from the history endpoint", async () => {
+      mockMetadata([{ ...episode, viewedAt: 1000 }]);
+      const result = parseResponse(await tools.getRecentlyWatched());
+      expect(result.recentlyWatched[0]).toMatchObject(episodeFields);
+    });
+
+    it("getWatchHistory keeps show info when it falls back to library metadata", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+        if (path === "/status/sessions/history/all") throw new Error("history unavailable");
+        if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+        return { MediaContainer: { Metadata: [{ ...episode, lastViewedAt: 1000, viewCount: 1 }] } };
+      });
+      const result = parseResponse(await tools.getWatchHistory());
+      expect(result.note).toBe("Generated from library metadata (fallback method)");
+      expect(result.watchHistory[0]).toMatchObject(episodeFields);
+    });
+  });
+
+  describe("getWatchHistory", () => {
+    it("sorts the history request by a field Plex accepts", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getWatchHistory(25, "7");
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toBe("/status/sessions/history/all");
+      // Plex answers HTTP 400 to sort=date:desc; its documented example is viewedAt:desc.
+      expect(call[1]).toMatchObject({ sort: "viewedAt:desc", "X-Plex-Container-Size": 25, accountID: "7" });
+    });
+
+    it("sends the paging pair Plex needs to honour the limit", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getWatchHistory(25);
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      // Plex returns the whole history (12k entries on a real server) when only Size is sent.
+      expect(call[1]).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 25 });
+    });
+
+    describe("library fallback", () => {
+      const item = (ratingKey: string, viewOffset?: number) => ({
+        ratingKey, title: `Movie ${ratingKey}`, type: "movie", year: 2020, lastViewedAt: 1000, viewCount: 1, duration: 7200000, ...(viewOffset === undefined ? {} : { viewOffset }),
+      });
+
+      it("marks a show completed only when every episode is watched", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          const show = (ratingKey: string, viewedLeafCount: number) => ({ ratingKey, title: ratingKey, type: "show", lastViewedAt: 1000, viewCount: 9, duration: 1440000, leafCount: 10, viewedLeafCount });
+          (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+            if (requestPath === "/status/sessions/history/all") throw new Error("history unavailable");
+            if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+            return { MediaContainer: { Metadata: [show("all", 10), show("partly", 4)] } };
+          });
+
+          const result = parseResponse(await tools.getWatchHistory());
+          const byKey = Object.fromEntries(result.watchHistory.map((entry: { ratingKey: string }) => [entry.ratingKey, entry]));
+          expect(byKey.all.completed).toBe(true);
+          expect(byKey.partly.completed).toBe(false);
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+
+      it("marks finished items completed although Plex sends no viewOffset for them", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (requestPath: string) => {
+            if (requestPath === "/status/sessions/history/all") throw new Error("history unavailable");
+            if (requestPath === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } };
+            return { MediaContainer: { Metadata: [item("finished"), item("almost", 7200000 * 0.95), item("halfway", 7200000 * 0.5)] } };
+          });
+
+          const result = parseResponse(await tools.getWatchHistory());
+          const byKey = Object.fromEntries(result.watchHistory.map((entry: { ratingKey: string }) => [entry.ratingKey, entry]));
+          expect(byKey.finished).toMatchObject({ completed: true, progress: 100 });
+          expect(byKey.almost).toMatchObject({ completed: true, progress: 95 });
+          expect(byKey.halfway).toMatchObject({ completed: false, progress: 50 });
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+    });
+
+    describe("when the history endpoint fails", () => {
+      let errorSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        errorSpy.mockRestore();
+      });
+
+      it("logs the failure to stderr and falls back to library metadata", async () => {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+          if (path === "/status/sessions/history/all") throw new Error("Request failed with status code 400");
+          if (path === "/library/sections") return { MediaContainer: { Directory: [] } };
+          throw new Error(`unexpected ${path}`);
+        });
+
+        const result = parseResponse(await tools.getWatchHistory());
+        expect(result.totalSessions).toBe(0);
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Request failed with status code 400"));
+      });
+
+      it("logs both failures when the library fallback fails too", async () => {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("connection refused"));
+
+        const result = parseResponse(await tools.getWatchHistory());
+        expect(result.error).toBe("Watch history not available");
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+        expect(errorSpy).toHaveBeenLastCalledWith(expect.stringContaining("library fallback failed: connection refused"));
+      });
+    });
+  });
+
+  describe("getRecentlyWatched", () => {
+    const ORIGINAL_OUTPUT_FORMAT = process.env.PLEX_OUTPUT_FORMAT;
+
+    afterEach(() => {
+      if (ORIGINAL_OUTPUT_FORMAT === undefined) {
+        delete process.env.PLEX_OUTPUT_FORMAT;
+      } else {
+        process.env.PLEX_OUTPUT_FORMAT = ORIGINAL_OUTPUT_FORMAT;
+      }
+    });
+
+    const history = [1, 2, 3].map((n) => ({
+      ratingKey: String(n),
+      title: `Movie ${n}`,
+      type: "movie",
+      year: 2020,
+      viewedAt: 1000 - n,
+      duration: 100,
+      viewOffset: 100,
+    }));
+
+    it("uses the watch history whatever the output format", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: history } });
+
+      delete process.env.PLEX_OUTPUT_FORMAT;
+      const json = parseResponse(await tools.getRecentlyWatched());
+
+      process.env.PLEX_OUTPUT_FORMAT = "toon";
+      const toonText = (await tools.getRecentlyWatched()).content[0].text;
+      expect(() => JSON.parse(toonText)).toThrow(); // really is TOON, not JSON
+      const toon = decode(toonText) as typeof json;
+
+      expect(json.note).toBe("Retrieved from watch history data");
+      expect(json.totalCount).toBe(3);
+      expect(toon).toEqual(json);
+    });
+
+    it("falls back to library metadata when the history endpoint fails", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+        if (path === "/status/sessions/history/all") throw new Error("history unavailable");
+        if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "2", title: "TV" }] } };
+        return { MediaContainer: { Metadata: [{ ratingKey: "1", title: "Pilot", type: "episode", grandparentTitle: "Breaking Bad", grandparentRatingKey: "100", parentIndex: 1, index: 4, lastViewedAt: 1000, viewCount: 1, duration: 100 }] } };
+      });
+
+      const result = parseResponse(await tools.getRecentlyWatched(10, "episode"));
+      expect(result.note).toBe("Retrieved from library metadata");
+      expect(result.totalCount).toBe(1);
+      expect(result.recentlyWatched[0]).toMatchObject({ showTitle: "Breaking Bad", showRatingKey: "100", seasonNumber: 1, episodeNumber: 4 });
+    });
+
+    it("logs the history failure to stderr when it falls back", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+          if (path === "/status/sessions/history/all") throw new Error("Request failed with status code 400");
+          return { MediaContainer: { Directory: [] } };
+        });
+
+        await tools.getRecentlyWatched();
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Request failed with status code 400"));
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("getFullyWatched", () => {
+    // Plex omits viewOffset from finished items, so these have none.
+    const finished = (n: number) => ({ ratingKey: String(n), title: `Movie ${n}`, type: "movie", year: 2020, viewCount: 1, lastViewedAt: 2000 - n, duration: 7200000 });
+
+    it("asks Plex for watched items that are not in progress, newest first", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getFullyWatched("1", "movie", 5);
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toBe("/library/sections/1/all");
+      // The same query as Plex's own "Recently Watched" hub, plus the paging pair Plex needs to honour the size.
+      expect(call[1]).toMatchObject({
+        unwatched: 0,
+        viewOffset: 0,
+        sort: "lastViewedAt:desc",
+        type: 1,
+        "X-Plex-Container-Start": 0,
+        "X-Plex-Container-Size": 10,
+      });
+    });
+
+    it("returns finished items although Plex sends no viewOffset for them", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [finished(1), finished(2)] } });
+
+      const result = parseResponse(await tools.getFullyWatched("1", "movie"));
+      expect(result.totalCount).toBe(2);
+      expect(result.fullyWatched.map((item: { ratingKey: string }) => item.ratingKey)).toEqual(["1", "2"]);
+      expect(result.fullyWatched[0].completionPercent).toBe(100);
+    });
+
+    it("keeps shows and seasons only when every episode is watched", async () => {
+      const container = (ratingKey: string, leafCount: number, viewedLeafCount?: number) =>
+        ({ ratingKey, title: ratingKey, type: "show", viewCount: 5, leafCount, viewedLeafCount });
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [container("all", 10, 10), container("partly", 10, 4), container("none", 10), container("empty", 0, 0)] },
+      });
+
+      const result = parseResponse(await tools.getFullyWatched("2", "show"));
+      expect(result.fullyWatched.map((item: { ratingKey: string }) => item.ratingKey)).toEqual(["all"]);
+    });
+
+    it("returns no more than the limit", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [1, 2, 3, 4, 5, 6].map(finished) } });
+
+      const result = parseResponse(await tools.getFullyWatched("1", "movie", 3));
+      expect(result.fullyWatched).toHaveLength(3);
     });
   });
 

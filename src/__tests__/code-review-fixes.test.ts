@@ -407,10 +407,17 @@ describe("MIN_COMPLETION_DURATION_MS short-content guard", () => {
     expect(completed).toBe(false);
   });
 
-  it("should handle undefined viewOffset gracefully", () => {
+  it("should treat a watched item without viewOffset as completed", () => {
+    // Plex omits viewOffset from finished items, or reports 0.
     const duration = 10 * 60 * 1000;
-    const completed = isContentCompleted(duration, undefined, 1);
-    expect(completed).toBe(false);
+    expect(isContentCompleted(duration, undefined, 1)).toBe(true);
+    expect(isContentCompleted(duration, 0, 1)).toBe(true);
+  });
+
+  it("should not treat an unwatched item without viewOffset as completed", () => {
+    const duration = 10 * 60 * 1000;
+    expect(isContentCompleted(duration, undefined, 0)).toBe(false);
+    expect(isContentCompleted(duration, 0, 0)).toBe(false);
   });
 
   it("should handle undefined viewCount gracefully", () => {

@@ -32,6 +32,48 @@ function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
 }
 
+/** Helper: "/library/metadata/32820" -> "32820"; undefined for any other shape. */
+function ratingKeyFromKey(key: unknown): string | undefined {
+  return typeof key === "string" ? key.match(/^\/library\/metadata\/(\d+)$/)?.[1] : undefined;
+}
+
+/**
+ * Helper: the fields that tie an episode or season to its show.
+ * Plex's raw parent/grandparent fields change meaning with the item type
+ * (an episode's parentTitle is "Season 1", a season's is the show name), so
+ * they are normalised here. Empty for movies and shows, so nothing is added.
+ */
+function showContext(item: Record<string, unknown>) {
+  if (item.type === "episode") {
+    return {
+      showTitle: item.grandparentTitle,
+      // History entries carry grandparentKey ("/library/metadata/<id>") but no grandparentRatingKey.
+      showRatingKey: item.grandparentRatingKey ?? ratingKeyFromKey(item.grandparentKey),
+      seasonNumber: item.parentIndex,
+      episodeNumber: item.index,
+    };
+  }
+  if (item.type === "season") {
+    return {
+      showTitle: item.parentTitle,
+      showRatingKey: item.parentRatingKey,
+      seasonNumber: item.index,
+    };
+  }
+  return {};
+}
+
+/**
+ * Helper: whether a result of the unwatched=0 query is fully watched.
+ * Plex is exact for items without children (movies, episodes). It also lets
+ * partly watched shows and seasons through, and those carry leafCount and
+ * viewedLeafCount, so they are checked here.
+ */
+function isFullyWatched(item: Record<string, unknown>): boolean {
+  if (typeof item.leafCount !== "number") return true;
+  return item.leafCount > 0 && ((item.viewedLeafCount as number | undefined) ?? 0) >= item.leafCount;
+}
+
 type MetadataUpdateInput = {
   ratingKey: string;
   title?: string;
@@ -120,6 +162,7 @@ export class PlexTools {
         originalTitle: item.originalTitle,
         year: item.year,
         type: item.type,
+        ...showContext(item),
         guid: item.guid,
         editionTitle: item.editionTitle,
       })),
@@ -200,6 +243,7 @@ export class PlexTools {
               title: item.title,
               year: item.year,
               type: item.type,
+              ...showContext(item),
               guid: item.guid,
               originalTitle: item.originalTitle,
               editionTitle: item.editionTitle,
@@ -274,6 +318,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
         rating: item.rating,
@@ -317,6 +362,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         duration: item.duration,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
@@ -408,6 +454,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         addedAt: item.addedAt,
         summary: item.summary ? truncate(String(item.summary), SUMMARY_PREVIEW_LENGTH) : undefined,
@@ -425,6 +472,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         viewOffset: item.viewOffset,
         duration: item.duration,
         lastViewedAt: item.lastViewedAt,
@@ -499,6 +547,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         summary: item.summary,
         rating: item.rating,
@@ -945,19 +994,20 @@ export class PlexTools {
   async getRecentlyWatched(limit: number = DEFAULT_LIMITS.recentlyWatched, mediaType: string = "all"): Promise<MCPResponse> {
     // Primary: use watch history endpoint
     try {
-      const historyResult = await this.getWatchHistory(limit, undefined, mediaType);
-      const historyData = JSON.parse(historyResult.content[0].text);
+      const history = await this.fetchWatchHistory(limit, undefined, mediaType);
 
       return jsonResponse({
-        recentlyWatched: historyData.watchHistory || [],
-        totalCount: historyData.totalSessions || 0,
+        recentlyWatched: history.watchHistory,
+        totalCount: history.totalSessions,
         note: "Retrieved from watch history data",
       });
-    } catch {
+    } catch (error) {
+      console.error(`get_recently_watched: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: library metadata approach
       try {
         return await this.getRecentlyWatchedFromLibraries(limit, mediaType);
-      } catch {
+      } catch (fallbackError) {
+        console.error(`get_recently_watched: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
         return jsonResponse({
           recentlyWatched: [],
           totalCount: 0,
@@ -968,6 +1018,63 @@ export class PlexTools {
     }
   }
 
+  /**
+   * Session history from Plex's history endpoint, as data. Throws if the
+   * endpoint fails; callers choose their own fallback. Callers that need data
+   * use this and not getWatchHistory, whose text may be TOON instead of JSON.
+   */
+  private async fetchWatchHistory(
+    limit: number,
+    userId: string | undefined,
+    mediaType: string
+  ): Promise<{ watchHistory: Record<string, unknown>[]; totalSessions: number }> {
+    // Plex ignores X-Plex-Container-Size here unless X-Plex-Container-Start is sent too.
+    const params: Record<string, string | number> = {
+      "X-Plex-Container-Start": 0,
+      "X-Plex-Container-Size": limit,
+      sort: "viewedAt:desc",
+    };
+    if (userId) {
+      params.accountID = userId;
+    }
+
+    const data = await this.client.makeRequest("/status/sessions/history/all", params);
+    const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+    let sessions = container.MediaContainer?.Metadata || [];
+
+    if (mediaType !== "all") {
+      const typeMap: Record<string, string> = { movie: "movie", show: "show", episode: "episode" };
+      sessions = sessions.filter((session) => session.type === typeMap[mediaType]);
+    }
+
+    return {
+      watchHistory: sessions.map((session) => ({
+        sessionKey: session.sessionKey,
+        ratingKey: session.ratingKey,
+        title: session.title,
+        type: session.type,
+        ...showContext(session),
+        year: session.year,
+        viewedAt: session.viewedAt,
+        duration: session.duration,
+        viewOffset: session.viewOffset,
+        user: (session.User as { title?: string } | undefined)?.title,
+        player: (session.Player as { title?: string } | undefined)?.title,
+        platform: (session.Player as { platform?: string } | undefined)?.platform,
+        progress:
+          (session.viewOffset as number) && (session.duration as number)
+            ? Math.round(((session.viewOffset as number) / (session.duration as number)) * 100)
+            : 0,
+        completed: isContentCompleted(
+          session.duration as number | undefined,
+          session.viewOffset as number | undefined,
+          1 // viewCount always > 0 for watched items
+        ),
+      })),
+      totalSessions: sessions.length,
+    };
+  }
+
   async getWatchHistory(
     limit: number = DEFAULT_LIMITS.watchHistory,
     userId?: string,
@@ -975,53 +1082,14 @@ export class PlexTools {
   ): Promise<MCPResponse> {
     try {
       // Primary: session history endpoint
-      const params: Record<string, string | number> = {
-        "X-Plex-Container-Size": limit,
-        sort: "date:desc",
-      };
-      if (userId) {
-        params.accountID = userId;
-      }
-
-      const data = await this.client.makeRequest("/status/sessions/history/all", params);
-      const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-      let sessions = container.MediaContainer?.Metadata || [];
-
-      if (mediaType !== "all") {
-        const typeMap: Record<string, string> = { movie: "movie", show: "show", episode: "episode" };
-        sessions = sessions.filter((session) => session.type === typeMap[mediaType]);
-      }
-
-      return jsonResponse({
-        watchHistory: sessions.map((session) => ({
-          sessionKey: session.sessionKey,
-          ratingKey: session.ratingKey,
-          title: session.title,
-          type: session.type,
-          year: session.year,
-          viewedAt: session.viewedAt,
-          duration: session.duration,
-          viewOffset: session.viewOffset,
-          user: (session.User as { title?: string } | undefined)?.title,
-          player: (session.Player as { title?: string } | undefined)?.title,
-          platform: (session.Player as { platform?: string } | undefined)?.platform,
-          progress:
-            (session.viewOffset as number) && (session.duration as number)
-              ? Math.round(((session.viewOffset as number) / (session.duration as number)) * 100)
-              : 0,
-          completed: isContentCompleted(
-            session.duration as number | undefined,
-            session.viewOffset as number | undefined,
-            1 // viewCount always > 0 for watched items
-          ),
-        })),
-        totalSessions: sessions.length,
-      });
-    } catch {
+      return jsonResponse(await this.fetchWatchHistory(limit, userId, mediaType));
+    } catch (error) {
+      console.error(`get_watch_history: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: build pseudo-history from library metadata
       try {
         return await this.getWatchHistoryFromLibraries(limit, userId, mediaType);
-      } catch {
+      } catch (fallbackError) {
+        console.error(`get_watch_history: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
         return jsonResponse({
           error: "Watch history not available",
           message: "Unable to retrieve watch history from this Plex server",
@@ -1044,9 +1112,16 @@ export class PlexTools {
 
     try {
       let endpoint = "/library/all";
+      // Plex omits viewOffset from finished items, so completion can't be judged from the
+      // returned items. Ask Plex instead, with the query behind its own "Recently Watched"
+      // hub: watched at least once (unwatched=0) and not in progress (viewOffset=0).
+      // Size is twice the limit because isFullyWatched can still drop partly watched shows.
       const params: Record<string, string | number> = {
+        "X-Plex-Container-Start": 0,
         "X-Plex-Container-Size": limit * 2,
         sort: "lastViewedAt:desc",
+        unwatched: 0,
+        viewOffset: 0,
       };
 
       if (libraryKey) {
@@ -1061,22 +1136,14 @@ export class PlexTools {
       const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
       let items = container.MediaContainer?.Metadata || [];
 
-      items = items.filter((item) => {
-        if (!(item.viewCount as number) || (item.viewCount as number) === 0) return false;
-        return isContentCompleted(
-          item.duration as number | undefined,
-          item.viewOffset as number | undefined,
-          item.viewCount as number | undefined
-        );
-      });
-
-      items = items.slice(0, limit);
+      items = items.filter(isFullyWatched).slice(0, limit);
 
       return jsonResponse({
         fullyWatched: items.map((item) => ({
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           viewCount: item.viewCount,
           lastViewedAt: item.lastViewedAt,
@@ -1267,6 +1334,7 @@ export class PlexTools {
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           viewCount: item.viewCount,
           lastViewedAt: item.lastViewedAt,
@@ -1607,6 +1675,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         lastViewedAt: item.lastViewedAt,
         viewCount: item.viewCount,
@@ -1655,12 +1724,17 @@ export class PlexTools {
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
+          ...showContext(item),
           year: item.year,
           lastViewedAt: item.lastViewedAt,
           viewCount: item.viewCount,
           duration: item.duration,
           viewOffset: item.viewOffset || 0,
           library: library.title,
+          // Judged here, from the raw item: shows and seasons need their leaf counts.
+          completed:
+            isFullyWatched(item) &&
+            isContentCompleted(item.duration as number | undefined, item.viewOffset as number | undefined, item.viewCount as number | undefined),
         }));
 
         allViewedItems.push(...historyItems);
@@ -1674,24 +1748,13 @@ export class PlexTools {
 
     return jsonResponse({
       watchHistory: allViewedItems.map((item) => ({
-        ratingKey: item.ratingKey,
-        title: item.title,
-        type: item.type,
-        year: item.year,
-        lastViewedAt: item.lastViewedAt,
-        viewCount: item.viewCount,
-        duration: item.duration,
-        viewOffset: item.viewOffset,
-        library: item.library,
+        // Already shaped (incl. showContext and completed) by the historyItems map above.
+        ...item,
+        // No viewOffset means the item is finished, as in getRecentlyWatchedFromLibraries.
         progress:
           (item.viewOffset as number) && (item.duration as number)
             ? Math.round(((item.viewOffset as number) / (item.duration as number)) * 100)
-            : 0,
-        completed: isContentCompleted(
-          item.duration as number | undefined,
-          item.viewOffset as number | undefined,
-          item.viewCount as number | undefined
-        ),
+            : 100,
       })),
       totalSessions: allViewedItems.length,
       note: "Generated from library metadata (fallback method)",
@@ -1742,6 +1805,7 @@ export class PlexTools {
         ratingKey: item.ratingKey,
         title: item.title,
         type: item.type,
+        ...showContext(item),
         year: item.year,
         viewCount: item.viewCount,
         lastViewedAt: item.lastViewedAt,
