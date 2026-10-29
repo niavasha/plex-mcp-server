@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2](https://github.com/niavasha/plex-mcp-server/compare/v1.8.1...v1.8.2) (2026-10-29)
+
+
+### Fixed
+
+* follow-ups from the reviews of [#202](https://github.com/niavasha/plex-mcp-server/issues/202) and [#204](https://github.com/niavasha/plex-mcp-server/issues/204) ([ae3d2e9](https://github.com/niavasha/plex-mcp-server/commit/ae3d2e974c82f67807582c1603cb4e3b032f3585))
+* page through watch history until enough rows match the type filter ([938b0f6](https://github.com/niavasha/plex-mcp-server/commit/938b0f68e4d5a802c6f4c3e60e9a4f4cfcb71506))
+
 ## [1.8.1](https://github.com/niavasha/plex-mcp-server/compare/v1.8.0...v1.8.1) (2026-10-29)
 
 1.8.0 was tagged but never published to npm or ghcr.io: a moderate advisory for `@hono/node-server` (GHSA-rmxm-3fg6-px4f) appeared after its release PR passed CI, and the publish workflow's audit gate stopped it. 1.8.1 contains everything listed under 1.8.0 below, plus the fix.
