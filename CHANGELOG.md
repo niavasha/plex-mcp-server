@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2](https://github.com/niavasha/plex-mcp-server/compare/v1.8.1...v1.8.2) (2026-10-29)
+
+
+### Fixed
+
+* **plex:** ask Plex for watched items so get_fully_watched returns them ([39526e3](https://github.com/niavasha/plex-mcp-server/commit/39526e3e51e4e154b6167b83508ec2dfd00ae05b))
+* **plex:** correct photo and photoalbum libtype ids in smart playlists ([df711d1](https://github.com/niavasha/plex-mcp-server/commit/df711d18be9f2052c24e3e26fea9dee281c9bf45))
+* **plex:** include show and season details for episodes and seasons in media tools ([24e9ee3](https://github.com/niavasha/plex-mcp-server/commit/24e9ee3b59ec8eb427124c55e2158d9747cb5363))
+* **plex:** log why the watch history tools fall back to library metadata ([9595f79](https://github.com/niavasha/plex-mcp-server/commit/9595f790ce059f0eba7df91cef83c8dbbd691250))
+* **plex:** read watch history as data so get_recently_watched works with toon output ([0955bbd](https://github.com/niavasha/plex-mcp-server/commit/0955bbd51a17c5f0ce195e8db857fa1e46eac4ae))
+* **plex:** sort watch history by viewedAt and send the paging pair so the history endpoint works ([c0fccf7](https://github.com/niavasha/plex-mcp-server/commit/c0fccf714c87c7740d3c3026e3e600a8e92481d4))
+* **plex:** throw on unknown media type instead of defaulting to movie ([10aef83](https://github.com/niavasha/plex-mcp-server/commit/10aef83dd83758a5e9f5f24d4d8bde3b9dcd7f8c))
+* **plex:** treat a watched item without viewOffset as completed ([3190d22](https://github.com/niavasha/plex-mcp-server/commit/3190d22a62d7f11ddd8ede1ab984668917604e4d))
+* page through watch history until enough rows match the type filter ([938b0f6](https://github.com/niavasha/plex-mcp-server/commit/938b0f68e4d5a802c6f4c3e60e9a4f4cfcb71506))
+
 ## [1.8.1](https://github.com/niavasha/plex-mcp-server/compare/v1.8.0...v1.8.1) (2026-10-29)
 
 1.8.0 was tagged but never published to npm or ghcr.io: a moderate advisory for `@hono/node-server` (GHSA-rmxm-3fg6-px4f) appeared after its release PR passed CI, and the publish workflow's audit gate stopped it. 1.8.1 contains everything listed under 1.8.0 below, plus the fix.
