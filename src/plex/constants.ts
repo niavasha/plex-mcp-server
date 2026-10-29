@@ -53,6 +53,8 @@ export const DEFAULT_PLEX_URL = "http://localhost:32400";
 export const PLEX_CONTAINER_SIZE = 1000;
 /** Safety stop for paged listings: 500 pages of PLEX_CONTAINER_SIZE is 500k items. */
 export const PLEX_MAX_PAGES = 500;
+/** Safety stop for listings filtered on our side (history by type, fully watched shows). */
+export const PLEX_FILTERED_SCAN_MAX_PAGES = 50;
 export const SUMMARY_PREVIEW_LENGTH = 500;
 export const PLEX_MUTATIVE_OPS_ENV_VAR = "PLEX_ENABLE_MUTATIVE_OPS";
 

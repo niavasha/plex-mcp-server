@@ -35,7 +35,8 @@ describe("unknown media types in tools", () => {
 
   beforeEach(() => {
     client = new PlexClient({ baseUrl: "http://localhost:32400", token: "test-token" });
-    request = vi.spyOn(client, "makeRequest");
+    // Fail rather than reach a real server if a regression lets a request through.
+    request = vi.spyOn(client, "makeRequest").mockRejectedValue(new Error("unexpected request"));
     tools = new PlexTools(client);
   });
 
@@ -51,6 +52,17 @@ describe("unknown media types in tools", () => {
 
   it("getFullyWatched fails instead of falling back to a generic empty result", async () => {
     await expect(tools.getFullyWatched(undefined, "tv")).rejects.toThrow('Unknown media type "tv"');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("getRecentlyWatched fails instead of returning an empty history", async () => {
+    await expect(tools.getRecentlyWatched(10, "tv")).rejects.toThrow('Unknown media type "tv"');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("getWatchHistory refuses types that never appear in watch history", async () => {
+    // Valid Plex types, but history rows are movies, episodes and tracks: this would scan for nothing.
+    await expect(tools.getWatchHistory(10, undefined, "season")).rejects.toThrow('Unknown media type "season"');
     expect(request).not.toHaveBeenCalled();
   });
 
