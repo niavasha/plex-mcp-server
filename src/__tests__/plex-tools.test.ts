@@ -1174,5 +1174,56 @@ describe("PlexTools", () => {
       expect(puts).toHaveLength(1);
       expect(puts[0]).toMatchObject({ "genre.locked": 1, "genre[].tag.tag-": "B" });
     });
+
+    /** Like updateGenres, but the item can carry Plex's Field locks and the add PUT can fail. */
+    async function updateGenresWith(
+      current: string[],
+      desired: string[],
+      opts: { fields?: Array<{ name: string; locked: boolean }>; failAdd?: boolean } = {}
+    ) {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(
+        async (endpoint: string, params?: Record<string, string | number>) => {
+          if (endpoint === "/library/metadata/42") {
+            return {
+              MediaContainer: {
+                Metadata: [
+                  { type: "movie", librarySectionID: 1, Genre: current.map((tag) => ({ tag })), Field: opts.fields },
+                ],
+              },
+            };
+          }
+          if (opts.failAdd && params && "genre[0].tag.tag" in params) {
+            throw new Error("Plex returned 500");
+          }
+          return {};
+        }
+      );
+
+      const response = await tools.updateMetadata({ ratingKey: "42", genres: desired });
+      const puts = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([endpoint]) => endpoint === "/library/sections/1/all")
+        .map(([, params]) => params as Record<string, string | number>);
+      return { puts, response };
+    }
+
+    it("unlocks an empty field left locked by an earlier edit", async () => {
+      const { puts } = await updateGenresWith([], [], { fields: [{ name: "genre", locked: true }] });
+
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ id: "42", "genre.locked": 0 });
+      expect(Object.keys(puts[0]).some((key) => key.startsWith("genre["))).toBe(false);
+    });
+
+    it("sends nothing for an empty edit when the field is not locked", async () => {
+      const { puts } = await updateGenresWith([], [], { fields: [{ name: "title", locked: true }] });
+      expect(puts).toHaveLength(0);
+    });
+
+    it("skips the removal when the add of a replace fails, so tags are not lost", async () => {
+      const { puts, response } = await updateGenresWith(["A"], ["B"], { failAdd: true });
+
+      expect(puts.some((params) => "genre[].tag.tag-" in params)).toBe(false);
+      expect(JSON.stringify(response)).toContain("Skipped removing genre tags");
+    });
   });
 });
