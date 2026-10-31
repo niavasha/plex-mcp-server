@@ -3,6 +3,11 @@
  * Defined once, used by both servers.
  */
 
+import { PLEX_TYPE_IDS } from "./constants.js";
+
+/** Every media type the server resolves to a Plex type id, so the schemas cannot drift from PLEX_TYPE_IDS. */
+const MEDIA_TYPES = Object.keys(PLEX_TYPE_IDS);
+
 const GET_LIBRARIES_SCHEMA = {
   name: "get_libraries",
   description: "Get all Plex libraries",
@@ -21,8 +26,8 @@ const GET_LIBRARY_ITEMS_SCHEMA = {
       libraryKey: { type: "string", description: "Library section key" },
       type: {
         type: "string",
-        description: "Media type (movie, show, season, episode, artist, album, track)",
-        enum: ["movie", "show", "season", "episode", "artist", "album", "track"],
+        description: `Media type (${MEDIA_TYPES.join(", ")})`,
+        enum: MEDIA_TYPES,
       },
       limit: { type: "number", description: "Number of items to return (default: 1000)", default: 1000 },
       offset: { type: "number", description: "Zero-based offset for pagination (default: 0)", default: 0 },
@@ -41,8 +46,8 @@ const EXPORT_LIBRARY_SCHEMA = {
       libraryKey: { type: "string", description: "Library section key" },
       type: {
         type: "string",
-        description: "Media type (movie, show, season, episode, artist, album, track)",
-        enum: ["movie", "show", "season", "episode", "artist", "album", "track"],
+        description: `Media type (${MEDIA_TYPES.join(", ")})`,
+        enum: MEDIA_TYPES,
       },
       outputPath: {
         type: "string",
@@ -64,8 +69,8 @@ const SEARCH_MEDIA_SCHEMA = {
       query: { type: "string", description: "Search query" },
       type: {
         type: "string",
-        description: "Media type (movie, show, season, episode, artist, album, track)",
-        enum: ["movie", "show", "season", "episode", "artist", "album", "track"],
+        description: `Media type (${MEDIA_TYPES.join(", ")})`,
+        enum: MEDIA_TYPES,
       },
       libraryKey: { type: "string", description: "Library section key to restrict search (optional)" },
       limit: { type: "number", description: "Number of items to return (default: 500)", default: 500 },
@@ -87,7 +92,7 @@ const GET_RECENTLY_ADDED_SCHEMA = {
       type: {
         type: "string",
         description: "List only this media type, newest first (requires libraryKey)",
-        enum: ["movie", "show", "season", "episode", "artist", "album", "track"],
+        enum: MEDIA_TYPES,
       },
       libraryKey: { type: "string", description: "Library section key to list from (required with type)" },
     },
