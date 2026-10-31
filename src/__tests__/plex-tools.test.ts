@@ -5,6 +5,7 @@ import path from "node:path";
 import { PlexTools } from "../plex/tools.js";
 import { PlexClient } from "../plex/client.js";
 import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
+import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 /** Create a mock PlexClient without hitting any real server */
 function createMockClient() {
@@ -140,6 +141,24 @@ describe("PlexTools", () => {
       await expect(tools.getRecentlyAdded(10, "episode")).rejects.toThrow("type and libraryKey must be given together");
       await expect(tools.getRecentlyAdded(10, undefined, "2")).rejects.toThrow("type and libraryKey must be given together");
       expect(client.makeRequest).not.toHaveBeenCalled();
+    });
+
+    it("reports a half-specified call as an invalid request, like other input errors", async () => {
+      await expect(tools.getRecentlyAdded(10, "episode")).rejects.toMatchObject({ code: ErrorCode.InvalidRequest });
+    });
+
+    it.each([
+      [-5, DEFAULT_LIMITS.recentlyAdded],
+      [0, DEFAULT_LIMITS.recentlyAdded],
+      [Number.NaN, DEFAULT_LIMITS.recentlyAdded],
+      [2.7, 2],
+      [25, 25],
+    ])("sends a usable page size for limit %s", async (limit, expected) => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { Metadata: [] } });
+
+      await tools.getRecentlyAdded(limit);
+      const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[1]["X-Plex-Container-Size"]).toBe(expected);
     });
   });
 

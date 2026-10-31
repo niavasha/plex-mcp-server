@@ -486,12 +486,16 @@ export class PlexTools {
     libraryKey?: string
   ): Promise<MCPResponse> {
     if (Boolean(type) !== Boolean(libraryKey)) {
-      throw new Error("type and libraryKey must be given together to list recently added items of one type");
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "type and libraryKey must be given together to list recently added items of one type"
+      );
     }
 
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.recentlyAdded;
     const params: Record<string, string | number> = {
       "X-Plex-Container-Start": 0,
-      "X-Plex-Container-Size": limit,
+      "X-Plex-Container-Size": safeLimit,
     };
     let endpoint = "/library/recentlyAdded";
     if (type && libraryKey) {
