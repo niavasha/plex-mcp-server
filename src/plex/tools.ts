@@ -480,11 +480,30 @@ export class PlexTools {
     });
   }
 
-  async getRecentlyAdded(limit: number = DEFAULT_LIMITS.recentlyAdded): Promise<MCPResponse> {
-    const data = await this.client.makeRequest("/library/recentlyAdded", {
+  async getRecentlyAdded(
+    limit: number = DEFAULT_LIMITS.recentlyAdded,
+    type?: string,
+    libraryKey?: string
+  ): Promise<MCPResponse> {
+    if (Boolean(type) !== Boolean(libraryKey)) {
+      throw new Error("type and libraryKey must be given together to list recently added items of one type");
+    }
+
+    const params: Record<string, string | number> = {
       "X-Plex-Container-Start": 0,
       "X-Plex-Container-Size": limit,
-    });
+    };
+    let endpoint = "/library/recentlyAdded";
+    if (type && libraryKey) {
+      // /library/recentlyAdded groups episodes under their season and sorts by the season's addedAt,
+      // so a new episode of an existing season never shows up. Listing one type sorts by its own addedAt.
+      validatePlexId(libraryKey, "libraryKey");
+      endpoint = `/library/sections/${libraryKey}/all`;
+      params.type = this.client.getPlexTypeId(type);
+      params.sort = "addedAt:desc";
+    }
+
+    const data = await this.client.makeRequest(endpoint, params);
     const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
     const items = container.MediaContainer?.Metadata || [];
 

@@ -123,6 +123,24 @@ describe("PlexTools", () => {
       const call = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[1]["X-Plex-Container-Size"]).toBe(DEFAULT_LIMITS.recentlyAdded);
     });
+
+    it("lists one type of a library newest first, so new episodes of existing seasons appear", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ ratingKey: "9", title: "Pilot", type: "episode", addedAt: 2000 }] },
+      });
+
+      const result = parseResponse(await tools.getRecentlyAdded(10, "episode", "2"));
+      const [endpoint, params] = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(endpoint).toBe("/library/sections/2/all");
+      expect(params).toMatchObject({ type: 4, sort: "addedAt:desc", "X-Plex-Container-Size": 10 });
+      expect(result.recentlyAdded[0].ratingKey).toBe("9");
+    });
+
+    it("rejects type without libraryKey and libraryKey without type", async () => {
+      await expect(tools.getRecentlyAdded(10, "episode")).rejects.toThrow("type and libraryKey must be given together");
+      await expect(tools.getRecentlyAdded(10, undefined, "2")).rejects.toThrow("type and libraryKey must be given together");
+      expect(client.makeRequest).not.toHaveBeenCalled();
+    });
   });
 
   describe("getPlaylists", () => {
