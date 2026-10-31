@@ -487,12 +487,16 @@ export class PlexTools {
     libraryKey?: string
   ): Promise<MCPResponse> {
     if (Boolean(type) !== Boolean(libraryKey)) {
-      throw new Error("type and libraryKey must be given together to list recently added items of one type");
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "type and libraryKey must be given together to list recently added items of one type"
+      );
     }
 
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_LIMITS.recentlyAdded;
     const params: Record<string, string | number> = {
       "X-Plex-Container-Start": 0,
-      "X-Plex-Container-Size": limit,
+      "X-Plex-Container-Size": safeLimit,
     };
     let endpoint = "/library/recentlyAdded";
     if (type && libraryKey) {
@@ -1555,16 +1559,23 @@ export class PlexTools {
     const locked = desiredTags.length > 0;
 
     // Add first, remove second to avoid data loss on partial failures.
+    let addFailed = false;
     if (toAdd.length > 0) {
       try {
         await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toAdd, false, locked);
         success = true;
       } catch (error) {
+        addFailed = true;
         warnings.push(`Failed adding ${tag} tags: ${this.getErrorMessage(error)}`);
       }
     }
 
-    if (toRemove.length > 0) {
+    // If the add failed, removing now could leave the field empty (and locked), losing the old tags.
+    let removed = toRemove;
+    if (toRemove.length > 0 && addFailed) {
+      removed = [];
+      warnings.push(`Skipped removing ${tag} tags because adding the new ones failed`);
+    } else if (toRemove.length > 0) {
       try {
         await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toRemove, true, locked);
         success = true;
@@ -1573,13 +1584,34 @@ export class PlexTools {
       }
     }
 
+    // An empty field can still be locked (e.g. by an edit made before #205 was fixed). With nothing
+    // to add or remove, clear the lock on its own so a refresh can fill the field again. This only
+    // fires when Plex reports the lock under the same name the tool edits.
+    let unlocked = false;
+    if (desiredTags.length === 0 && toAdd.length === 0 && toRemove.length === 0 && this.isFieldLocked(item, tag)) {
+      try {
+        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, [], false, false);
+        success = true;
+        unlocked = true;
+      } catch (error) {
+        warnings.push(`Failed unlocking ${tag}: ${this.getErrorMessage(error)}`);
+      }
+    }
+
     return {
       tag,
       success,
       added: toAdd,
-      removed: toRemove,
+      removed,
+      unlocked: unlocked || undefined,
       warnings: warnings.length > 0 ? warnings : undefined,
     };
+  }
+
+  private isFieldLocked(item: Record<string, unknown>, field: string): boolean {
+    const fields = Array.isArray(item.Field) ? (item.Field as Array<{ name?: string; locked?: boolean }>) : [];
+    // Same test as getEditableFields' lockedFields, so the two never disagree about a field.
+    return fields.some((entry) => entry.name === field && Boolean(entry.locked));
   }
 
   private getCurrentTags(item: Record<string, unknown>, tag: EditableTagType): string[] {

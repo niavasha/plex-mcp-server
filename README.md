@@ -257,7 +257,7 @@ Set `PLEX_ENABLE_MUTATIVE_OPS=true` to enable these tools. They allow your AI as
 
 | Function | Description |
 |----------|-------------|
-| `update_metadata` | Update metadata fields and editable tags for a media item |
+| `update_metadata` | Update metadata fields and editable tags for a media item. A tag field is locked against refreshes while it holds tags; passing an empty list clears it and unlocks it |
 | `update_metadata_from_json` | Apply a metadata JSON payload using best-effort field mapping |
 | `create_playlist` | Create a new smart or static playlist |
 | `add_to_playlist` | Add a media item to a playlist |
