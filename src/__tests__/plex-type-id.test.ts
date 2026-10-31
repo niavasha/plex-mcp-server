@@ -76,7 +76,7 @@ describe("unknown media types in tools", () => {
   });
 });
 
-describe("update_metadata on a season", () => {
+describe("update_metadata tag edits by item type", () => {
   const ORIGINAL_MUTATIVE_ENV = process.env.PLEX_ENABLE_MUTATIVE_OPS;
 
   beforeEach(() => {
@@ -107,6 +107,46 @@ describe("update_metadata on a season", () => {
       expect.objectContaining({ id: "42", type: 3 }),
       "PUT"
     );
+  });
+
+  /** Run a genre edit on an item of the given Plex type and return the section PUTs it sent. */
+  async function genreEditOn(itemType: string) {
+    const client = new PlexClient({ baseUrl: "http://localhost:32400", token: "test-token" });
+    const request = vi.spyOn(client, "makeRequest").mockImplementation(async (endpoint: string) => {
+      if (endpoint === "/library/metadata/42") {
+        return { MediaContainer: { Metadata: [{ type: itemType, librarySectionID: 1 }] } };
+      }
+      return {};
+    });
+    const response = await new PlexTools(client).updateMetadata({ ratingKey: "42", genres: ["Test"] });
+    const puts = request.mock.calls.filter(([endpoint]) => endpoint === "/library/sections/1/all");
+    return { puts, response };
+  }
+
+  // collection 18 confirmed against Plex 2026-10-31 (#209): type=18 applied the tag, type=1 returned 200 and wrote
+  // nothing. clip is python-plexapi's SEARCHTYPES (plexapi/utils.py).
+  it.each([
+    ["collection", 18],
+    ["clip", 12],
+  ])("sends the %s type id (%i) for tag edits", async (itemType, id) => {
+    const { puts } = await genreEditOn(itemType);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][1]).toMatchObject({ id: "42", type: id });
+  });
+
+  // "photo" covers albums too (Plex reports both as photo), and a wrong id would write nothing while reporting
+  // success, so photos must keep failing loudly until the right id for each can be told apart.
+  it.each(["person", "photo"])("refuses tag edits on %s items, without sending anything", async (itemType) => {
+    const { puts, response } = await genreEditOn(itemType);
+    expect(puts).toHaveLength(0);
+    const body = JSON.parse((response.content as Array<{ text: string }>)[0].text);
+    expect(body.tagResults[0]).toMatchObject({ success: false });
+    expect(body.tagResults[0].warnings[0]).toContain(`Unknown media type "${itemType}"`);
+  });
+
+  it("does not widen the types the listing tools accept", () => {
+    const client = new PlexClient({ baseUrl: "http://localhost:32400", token: "test-token" });
+    expect(() => client.getPlexTypeId("collection")).toThrow(/Unknown media type "collection"/);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   SUMMARY_PREVIEW_LENGTH,
   PLEX_TYPE_IDS,
   SMART_PLAYLIST_LIBTYPE_IDS,
+  PLEX_TAGGABLE_TYPE_IDS,
   PLEX_CONTAINER_SIZE,
 } from "../plex/constants.js";
 import { ARR_PREVIEW_LIMIT, ARR_DEFAULT_PAGE_SIZE } from "../arr/constants.js";
@@ -91,6 +92,23 @@ describe("SMART_PLAYLIST_LIBTYPE_IDS", () => {
       track: 10,
       photo: 13,
       photoalbum: 14,
+    });
+  });
+});
+
+describe("PLEX_TAGGABLE_TYPE_IDS", () => {
+  // collection checked live (#209); clip from python-plexapi SEARCHTYPES. No photo: albums also report type "photo".
+  it("maps every item kind a tag edit can target to its Plex type id, and nothing else", () => {
+    expect(PLEX_TAGGABLE_TYPE_IDS).toEqual({
+      movie: 1,
+      show: 2,
+      season: 3,
+      episode: 4,
+      artist: 8,
+      album: 9,
+      track: 10,
+      clip: 12,
+      collection: 18,
     });
   });
 });

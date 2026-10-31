@@ -13,6 +13,24 @@ export const PLEX_TYPE_IDS: Record<string, number> = {
 };
 
 /**
+ * Type IDs for item kinds that can carry tags, sent as `type` with a tag edit
+ * (PUT /library/sections/{id}/all). Plex answers a wrong type with 200 and writes
+ * nothing, so every taggable kind needs its own id. A superset of PLEX_TYPE_IDS,
+ * kept separate so the listing tools don't start accepting these kinds.
+ * collection (18) confirmed against a live server on 2026-10-31 (#209); clip (12)
+ * is python-plexapi's SEARCHTYPES (plexapi/utils.py; Clip has TYPE = 'clip').
+ * No photo entry, on purpose: Plex reports photo albums as type "photo" too
+ * (python-plexapi's Photoalbum has TYPE = 'photo' but edits with 'photoalbum', 14),
+ * so item.type alone can't pick 13 or 14. A wrong id is a silent no-op, so photos
+ * and albums keep failing loudly until that can be checked against a photo library.
+ */
+export const PLEX_TAGGABLE_TYPE_IDS: Record<string, number> = {
+  ...PLEX_TYPE_IDS,
+  clip: 12,
+  collection: 18,
+};
+
+/**
  * Numeric libtype IDs used inside smart playlist search URIs
  * (e.g. /library/sections/1/all?type=N). This is a superset of PLEX_TYPE_IDS
  * — it includes photoalbum/photo which are valid smart-playlist filter

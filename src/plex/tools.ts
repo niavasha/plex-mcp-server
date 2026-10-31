@@ -24,6 +24,7 @@ import {
   TASTE_TOP_ACTORS,
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
+  PLEX_TAGGABLE_TYPE_IDS,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
@@ -1641,11 +1642,20 @@ export class PlexTools {
     validatePlexId(libraryKey, "libraryKey");
     const params: Record<string, string | number> = {
       id: ratingKey,
-      type: this.client.getPlexTypeId(itemType),
+      type: this.getTaggableTypeId(itemType),
       ...this.buildTagParams(tag, items, locked, remove),
     };
 
     await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params, "PUT");
+  }
+
+  private getTaggableTypeId(itemType: string): number {
+    if (!Object.hasOwn(PLEX_TAGGABLE_TYPE_IDS, itemType)) {
+      throw new Error(
+        `Unknown media type "${itemType}". Expected one of: ${Object.keys(PLEX_TAGGABLE_TYPE_IDS).join(", ")}`
+      );
+    }
+    return PLEX_TAGGABLE_TYPE_IDS[itemType];
   }
 
   private buildTagParams(tag: string, items: string[], locked: boolean, remove: boolean): Record<string, string | number> {
