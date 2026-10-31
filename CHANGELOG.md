@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0](https://github.com/niavasha/plex-mcp-server/compare/v1.8.2...v1.9.0) (2026-10-31)
+
+
+### Added
+
+* **plex:** report locked fields in get_editable_fields ([bae8bb7](https://github.com/niavasha/plex-mcp-server/commit/bae8bb745b07bd5eb99adf6cb0bb6b47a406eb02)), closes [#205](https://github.com/niavasha/plex-mcp-server/issues/205)
+
+
+### Fixed
+
+* **deps:** bump follow-redirects to 1.16.2 ([4388088](https://github.com/niavasha/plex-mcp-server/commit/4388088ceb9cc52182125107848365686eff851d))
+* let get_recently_added list new episodes by type and library ([c1c293e](https://github.com/niavasha/plex-mcp-server/commit/c1c293e014eb3be152234bb6b0743a2d66d126c5))
+* offer season in the type argument of the listing tools ([88c6e6c](https://github.com/niavasha/plex-mcp-server/commit/88c6e6cb6627c54e60c2eafb8bc6b703a1a6724b))
+* **plex:** unlock a tag field when an edit empties it ([da91800](https://github.com/niavasha/plex-mcp-server/commit/da91800c05bf28301d1ca2e6c4f4b3f9198c0073)), closes [#205](https://github.com/niavasha/plex-mcp-server/issues/205)
+* send the right type id for tag edits on collections and clips ([84e7528](https://github.com/niavasha/plex-mcp-server/commit/84e75281a57edbabe162963a9c7f6cd4ba1ec646))
+* treat a half-specified get_recently_added as an invalid request; clamp its limit ([8658d98](https://github.com/niavasha/plex-mcp-server/commit/8658d988ab3ab69d52ce44036d21243d96ac6345))
+* unlock a tag field already left empty and locked; skip removal after a failed add ([89357c8](https://github.com/niavasha/plex-mcp-server/commit/89357c8fde550bd2fb69719a76d3b7627a1a181c))
+
 ## [1.8.2](https://github.com/niavasha/plex-mcp-server/compare/v1.8.1...v1.8.2) (2026-10-29)
 
 
