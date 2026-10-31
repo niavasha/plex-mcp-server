@@ -77,11 +77,19 @@ const SEARCH_MEDIA_SCHEMA = {
 
 const GET_RECENTLY_ADDED_SCHEMA = {
   name: "get_recently_added",
-  description: "Get recently added media",
+  description:
+    "Get recently added media across all libraries. TV is grouped by season, so a new episode of an existing season is not listed; " +
+    "pass type and libraryKey to list items of one type (e.g. episode) newest first.",
   inputSchema: {
     type: "object" as const,
     properties: {
       limit: { type: "number", description: "Number of items to return (default: 50)", default: 50 },
+      type: {
+        type: "string",
+        description: "List only this media type, newest first (requires libraryKey)",
+        enum: ["movie", "show", "episode", "artist", "album", "track"],
+      },
+      libraryKey: { type: "string", description: "Library section key to list from (required with type)" },
     },
   },
 };

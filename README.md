@@ -234,7 +234,7 @@ Once configured, you can ask your AI assistant:
 | `get_library_items` | List items in a library with pagination |
 | `export_library` | Export a full library to JSON (under `./exports`) |
 | `search_media` | Search media globally or within one library |
-| `get_recently_added` | Recently added content |
+| `get_recently_added` | Recently added content; pass `type` and `libraryKey` to list e.g. new episodes (TV is otherwise grouped by season) |
 | `get_on_deck` | Continue watching list |
 | `get_media_details` | Detailed media info |
 | `get_editable_fields` | Show editable fields and available tags for an item |

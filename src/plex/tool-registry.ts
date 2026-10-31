@@ -87,7 +87,11 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
   );
 
   registry.register("get_recently_added", (args) =>
-    tools.getRecentlyAdded((args.limit as number) || DEFAULT_LIMITS.recentlyAdded)
+    tools.getRecentlyAdded(
+      (args.limit as number) || DEFAULT_LIMITS.recentlyAdded,
+      args.type as string | undefined,
+      args.libraryKey as string | undefined
+    )
   );
 
   registry.register("get_on_deck", () => tools.getOnDeck());
