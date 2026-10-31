@@ -456,6 +456,13 @@ export class PlexTools {
       (key) => availableTags[key as keyof typeof availableTags].length > 0
     );
 
+    // Plex lists a field in `Field` only while it is locked against metadata refreshes.
+    const lockedFields = (
+      (item.Field as Array<{ name?: string; locked?: boolean }> | undefined) ?? []
+    )
+      .filter((field) => field.locked && field.name)
+      .map((field) => field.name as string);
+
     return jsonResponse({
       ratingKey,
       type: item.type,
@@ -464,9 +471,11 @@ export class PlexTools {
       editableFields,
       editableTags,
       availableTags,
+      lockedFields,
       notes: [
         "Roles/directors availability depends on agent/library type.",
         "If a tag array is empty, Plex likely won't accept edits for that tag type.",
+        "lockedFields uses Plex's own field names (e.g. genre, collection) and lists only fields locked against metadata refreshes.",
       ],
     });
   }

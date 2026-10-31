@@ -1040,6 +1040,40 @@ describe("PlexTools", () => {
     });
   });
 
+  describe("getEditableFields lockedFields", () => {
+    it("lists only the fields Plex reports as locked", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: {
+          Metadata: [
+            {
+              type: "movie",
+              title: "Locked",
+              Field: [
+                { name: "genre", locked: true },
+                { name: "title", locked: false },
+                { name: "collection", locked: true },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = parseResponse(await tools.getEditableFields("42"));
+
+      expect(result.lockedFields).toEqual(["genre", "collection"]);
+    });
+
+    it("returns an empty list when Plex sends no Field array", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ type: "movie", title: "Unlocked" }] },
+      });
+
+      const result = parseResponse(await tools.getEditableFields("42"));
+
+      expect(result.lockedFields).toEqual([]);
+    });
+  });
+
   describe("updateMetadata tag locks", () => {
     const ORIGINAL_MUTATIVE_ENV = process.env.PLEX_ENABLE_MUTATIVE_OPS;
 

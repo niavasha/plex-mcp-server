@@ -120,7 +120,7 @@ const GET_ACTIVE_SESSIONS_SCHEMA = {
 
 const GET_EDITABLE_FIELDS_SCHEMA = {
   name: "get_editable_fields",
-  description: "Get editable fields and available tags for a media item",
+  description: "Get editable fields, available tags and locked fields for a media item",
   inputSchema: {
     type: "object" as const,
     properties: {
