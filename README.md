@@ -237,7 +237,7 @@ Once configured, you can ask your AI assistant:
 | `get_recently_added` | Recently added content |
 | `get_on_deck` | Continue watching list |
 | `get_media_details` | Detailed media info |
-| `get_editable_fields` | Show editable fields and available tags for an item |
+| `get_editable_fields` | Show editable fields, available tags and locked fields for an item |
 | `get_playlists` | List all Plex playlists |
 | `get_playlist_items` | List items in a playlist |
 | `get_watchlist` | Get the current account Watchlist from Plex Discover |

@@ -1039,4 +1039,103 @@ describe("PlexTools", () => {
       ).rejects.toThrow(/mutually exclusive|cannot.*both/i);
     });
   });
+
+  describe("getEditableFields lockedFields", () => {
+    it("lists only the fields Plex reports as locked", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: {
+          Metadata: [
+            {
+              type: "movie",
+              title: "Locked",
+              Field: [
+                { name: "genre", locked: true },
+                { name: "title", locked: false },
+                { name: "collection", locked: true },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = parseResponse(await tools.getEditableFields("42"));
+
+      expect(result.lockedFields).toEqual(["genre", "collection"]);
+    });
+
+    it("returns an empty list when Plex sends no Field array", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+        MediaContainer: { Metadata: [{ type: "movie", title: "Unlocked" }] },
+      });
+
+      const result = parseResponse(await tools.getEditableFields("42"));
+
+      expect(result.lockedFields).toEqual([]);
+    });
+  });
+
+  describe("updateMetadata tag locks", () => {
+    const ORIGINAL_MUTATIVE_ENV = process.env.PLEX_ENABLE_MUTATIVE_OPS;
+
+    beforeEach(() => {
+      process.env.PLEX_ENABLE_MUTATIVE_OPS = "true";
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_MUTATIVE_ENV === undefined) {
+        delete process.env.PLEX_ENABLE_MUTATIVE_OPS;
+      } else {
+        process.env.PLEX_ENABLE_MUTATIVE_OPS = ORIGINAL_MUTATIVE_ENV;
+      }
+    });
+
+    /** Serve an item with the given genres and return the params of each PUT to the section. */
+    async function updateGenres(current: string[], desired: string[]) {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(async (endpoint: string) => {
+        if (endpoint === "/library/metadata/42") {
+          return {
+            MediaContainer: {
+              Metadata: [{ type: "movie", librarySectionID: 1, Genre: current.map((tag) => ({ tag })) }],
+            },
+          };
+        }
+        return {};
+      });
+
+      await tools.updateMetadata({ ratingKey: "42", genres: desired });
+
+      return (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([endpoint]) => endpoint === "/library/sections/1/all")
+        .map(([, params]) => params as Record<string, string | number>);
+    }
+
+    it("locks the field when adding a tag", async () => {
+      const puts = await updateGenres([], ["A"]);
+
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ "genre.locked": 1, "genre[0].tag.tag": "A" });
+    });
+
+    it("keeps the lock on both requests when a replace swaps one tag for another", async () => {
+      const puts = await updateGenres(["A"], ["B"]);
+
+      expect(puts).toHaveLength(2);
+      expect(puts[0]).toMatchObject({ "genre.locked": 1, "genre[0].tag.tag": "B" });
+      expect(puts[1]).toMatchObject({ "genre.locked": 1, "genre[].tag.tag-": "A" });
+    });
+
+    it("unlocks the field when the removal empties it", async () => {
+      const puts = await updateGenres(["A"], []);
+
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ "genre.locked": 0, "genre[].tag.tag-": "A" });
+    });
+
+    it("keeps the lock when a removal leaves other tags", async () => {
+      const puts = await updateGenres(["A", "B"], ["A"]);
+
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ "genre.locked": 1, "genre[].tag.tag-": "B" });
+    });
+  });
 });

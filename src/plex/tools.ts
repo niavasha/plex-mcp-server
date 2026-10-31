@@ -456,6 +456,13 @@ export class PlexTools {
       (key) => availableTags[key as keyof typeof availableTags].length > 0
     );
 
+    // Plex lists a field in `Field` only while it is locked against metadata refreshes.
+    const lockedFields = (
+      (item.Field as Array<{ name?: string; locked?: boolean }> | undefined) ?? []
+    )
+      .filter((field) => field.locked && field.name)
+      .map((field) => field.name as string);
+
     return jsonResponse({
       ratingKey,
       type: item.type,
@@ -464,9 +471,11 @@ export class PlexTools {
       editableFields,
       editableTags,
       availableTags,
+      lockedFields,
       notes: [
         "Roles/directors availability depends on agent/library type.",
         "If a tag array is empty, Plex likely won't accept edits for that tag type.",
+        "lockedFields uses Plex's own field names (e.g. genre, collection) and lists only fields locked against metadata refreshes.",
       ],
     });
   }
@@ -1521,11 +1530,14 @@ export class PlexTools {
     const toRemove = currentTags.filter((value) => !desiredSet.has(value));
     const warnings: string[] = [];
     let success = false;
+    // Lock the field only if tags remain. Decided once from the final set so the removal
+    // in a replace doesn't drop the lock the add just set, and an emptied field isn't pinned.
+    const locked = desiredTags.length > 0;
 
     // Add first, remove second to avoid data loss on partial failures.
     if (toAdd.length > 0) {
       try {
-        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toAdd, false);
+        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toAdd, false, locked);
         success = true;
       } catch (error) {
         warnings.push(`Failed adding ${tag} tags: ${this.getErrorMessage(error)}`);
@@ -1534,7 +1546,7 @@ export class PlexTools {
 
     if (toRemove.length > 0) {
       try {
-        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toRemove, true);
+        await this.editTagsForItem(ratingKey, libraryKey, item.type as string, tag, toRemove, true, locked);
         success = true;
       } catch (error) {
         warnings.push(`Failed removing ${tag} tags: ${this.getErrorMessage(error)}`);
@@ -1572,13 +1584,14 @@ export class PlexTools {
     itemType: string,
     tag: EditableTagType,
     items: string[],
-    remove: boolean
+    remove: boolean,
+    locked: boolean
   ): Promise<void> {
     validatePlexId(libraryKey, "libraryKey");
     const params: Record<string, string | number> = {
       id: ratingKey,
       type: this.client.getPlexTypeId(itemType),
-      ...this.buildTagParams(tag, items, true, remove),
+      ...this.buildTagParams(tag, items, locked, remove),
     };
 
     await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params, "PUT");
