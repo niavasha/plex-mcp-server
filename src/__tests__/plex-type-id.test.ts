@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlexClient } from "../plex/client.js";
 import { PlexTools } from "../plex/tools.js";
+import { PLEX_TYPE_IDS } from "../plex/constants.js";
+import { PLEX_TOOL_SCHEMAS } from "../plex/tool-schemas.js";
 
 describe("PlexClient.getPlexTypeId", () => {
   const client = new PlexClient({ baseUrl: "http://localhost:32400", token: "test-token" });
@@ -106,4 +108,15 @@ describe("update_metadata on a season", () => {
       "PUT"
     );
   });
+});
+
+describe("type argument of the listing tools", () => {
+  it.each(["get_library_items", "export_library", "search_media", "get_recently_added"])(
+    "%s offers every type the server resolves",
+    (name) => {
+      const schema = PLEX_TOOL_SCHEMAS.find((tool) => tool.name === name);
+      const properties = schema?.inputSchema.properties as Record<string, { enum?: string[] }>;
+      expect(properties.type.enum).toEqual(Object.keys(PLEX_TYPE_IDS));
+    }
+  );
 });
