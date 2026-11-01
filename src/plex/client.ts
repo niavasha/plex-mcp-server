@@ -216,7 +216,7 @@ export class PlexClient implements PlexAPIClient {
    * Some endpoints omit totalSize, so a missing total means "unknown" and only
    * a short or empty page ends the walk.
    */
-  private async fetchAllPages(
+  async fetchAllPages(
     endpoint: string,
     params: Record<string, string | number>
   ): Promise<Record<string, unknown>[]> {
