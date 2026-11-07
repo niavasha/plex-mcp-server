@@ -29,6 +29,14 @@ import {
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
 
+/**
+ * Helper: the paging pair for a request that wants the first `size` items.
+ * Plex ignores X-Plex-Container-Size unless X-Plex-Container-Start is sent with it.
+ */
+function firstPage(size: number) {
+  return { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": size };
+}
+
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
@@ -1305,11 +1313,9 @@ export class PlexTools {
     const fromDate = Math.floor((Date.now() - timeRange * 24 * 60 * 60 * 1000) / 1000);
 
     try {
-      const data = await this.client.makeRequest("/status/sessions/history/all", {
-        "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
-      });
-      const container = data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-      const sessions = container.MediaContainer?.Metadata || [];
+      // Plex filters by time and the pages are walked until the range is exhausted. An
+      // unsorted history comes back oldest first, so a fixed cap would drop the range.
+      const sessions = await this.client.fetchAllPages("/status/sessions/history/all", { "viewedAt>": fromDate });
 
       const filteredSessions = sessions.filter(
         (session) => (session.viewedAt as number) && (session.viewedAt as number) >= fromDate
@@ -1427,7 +1433,7 @@ export class PlexTools {
       for (const library of libraries) {
         try {
           const params: Record<string, string | number> = {
-            "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
+            ...firstPage(PLEX_CONTAINER_SIZE),
             sort: metric === "plays" ? "viewCount:desc" : "lastViewedAt:desc",
           };
           if (typeId !== undefined) {
@@ -1817,7 +1823,7 @@ export class PlexTools {
       try {
         const params: Record<string, string | number> = {
           sort: "lastViewedAt:desc",
-          "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 5,
+          ...firstPage(Math.ceil(limit / libraries.length) + 5),
         };
         if (typeId !== undefined) {
           params.type = typeId;
@@ -1873,7 +1879,7 @@ export class PlexTools {
     for (const library of libraries) {
       try {
         const params: Record<string, string | number> = {
-          "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 5,
+          ...firstPage(Math.ceil(limit / libraries.length) + 5),
           sort: "lastViewedAt:desc",
         };
         if (typeId !== undefined) {
@@ -1941,8 +1947,9 @@ export class PlexTools {
         if (libraryKey && library.key !== libraryKey) continue;
 
         const params: Record<string, string | number> = {
-          "X-Plex-Container-Size": Math.ceil(limit / libraries.length) + 10,
-          sort: "addedAt:desc",
+          ...firstPage(Math.ceil(limit / libraries.length) + 10),
+          // Newest viewed first: sorted by addedAt, a cap would keep mostly unwatched items.
+          sort: "lastViewedAt:desc",
         };
         if (typeId !== undefined) {
           params.type = typeId;
