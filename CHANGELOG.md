@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.1](https://github.com/niavasha/plex-mcp-server/compare/v1.9.0...v1.9.1) (2026-11-10)
+
+
+### Fixed
+
+* **deps:** bump axios ([#221](https://github.com/niavasha/plex-mcp-server/issues/221)) ([6ce592a](https://github.com/niavasha/plex-mcp-server/commit/6ce592a6a56e52231fe9324d15dfeb413eec1dba))
+* **plex:** ask each library for the whole limit in the per-library merges ([6804bdd](https://github.com/niavasha/plex-mcp-server/commit/6804bdd7be207457f2d638d0b462c9809ccbb366))
+* **plex:** ask each library for the whole limit in the per-library merges ([0d958a8](https://github.com/niavasha/plex-mcp-server/commit/0d958a8e4c41fb1ce75a332336419e69274a9d31))
+* **plex:** send X-Plex-Container-Start with every size so Plex honours the limit ([79036d7](https://github.com/niavasha/plex-mcp-server/commit/79036d73a16e9f8a72adf46f4ea3f9dd3877b8cf))
+
 ## [1.9.0](https://github.com/niavasha/plex-mcp-server/compare/v1.8.2...v1.9.0) (2026-10-31)
 
 
