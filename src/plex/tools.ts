@@ -37,6 +37,17 @@ function firstPage(size: number) {
   return { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": size };
 }
 
+/**
+ * Helper: rows to ask one library for when the caller keeps its `limit` most recently
+ * viewed, merged across libraries. Any one library may hold the whole top `limit`, so at
+ * least `limit`; doubled as headroom for in-progress rows, which sort among the views and
+ * are filtered out afterwards. A heuristic: more in-progress rows than `limit` still cost
+ * slots, but the cost stays one request per library.
+ */
+function recencyPageSize(limit: number) {
+  return Math.max(1, limit) * 2;
+}
+
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
@@ -1429,11 +1440,15 @@ export class PlexTools {
 
       let allContent: Record<string, unknown>[] = [];
       const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
+      // The merge keeps the top `limit`, which one library may hold entirely, so each library
+      // is asked for at least `limit` rows. One request per library; the doubling is headroom
+      // for in-progress rows that the filter below drops (a heuristic).
+      const pageSize = Math.max(recencyPageSize(limit), PLEX_CONTAINER_SIZE);
 
       for (const library of libraries) {
         try {
           const params: Record<string, string | number> = {
-            ...firstPage(PLEX_CONTAINER_SIZE),
+            ...firstPage(pageSize),
             sort: metric === "plays" ? "viewCount:desc" : "lastViewedAt:desc",
           };
           if (typeId !== undefined) {
@@ -1810,6 +1825,24 @@ export class PlexTools {
     return "movie";
   }
 
+  /**
+   * One library's most recently viewed items with a completed view, in one request of
+   * recencyPageSize(limit) rows. The merged top `limit` may come from this library alone.
+   */
+  private async viewedByRecency(
+    endpoint: string,
+    params: Record<string, string | number>,
+    limit: number
+  ): Promise<Record<string, unknown>[]> {
+    const data = await this.client.makeRequest(endpoint, {
+      ...params,
+      ...firstPage(recencyPageSize(limit)),
+      sort: "lastViewedAt:desc",
+    });
+    const rows = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } }).MediaContainer?.Metadata || [];
+    return rows.filter((item) => item.lastViewedAt && (item.viewCount as number) > 0);
+  }
+
   private async getRecentlyWatchedFromLibraries(limit: number, mediaType: string): Promise<MCPResponse> {
     const librariesData = await this.client.makeRequest("/library/sections");
     const libContainer = librariesData as { MediaContainer?: { Directory?: Record<string, unknown>[] } };
@@ -1821,22 +1854,12 @@ export class PlexTools {
 
     for (const library of libraries) {
       try {
-        const params: Record<string, string | number> = {
-          sort: "lastViewedAt:desc",
-          ...firstPage(Math.ceil(limit / libraries.length) + 5),
-        };
+        const params: Record<string, string | number> = {};
         if (typeId !== undefined) {
           params.type = typeId;
         }
 
-        const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);
-        const container = contentData as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-        const content = container.MediaContainer?.Metadata || [];
-
-        const viewedContent = content.filter(
-          (item) => item.lastViewedAt && (item.viewCount as number) > 0
-        );
-        allRecentItems.push(...viewedContent);
+        allRecentItems.push(...(await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit)));
       } catch {
         continue;
       }
@@ -1878,21 +1901,12 @@ export class PlexTools {
 
     for (const library of libraries) {
       try {
-        const params: Record<string, string | number> = {
-          ...firstPage(Math.ceil(limit / libraries.length) + 5),
-          sort: "lastViewedAt:desc",
-        };
+        const params: Record<string, string | number> = {};
         if (typeId !== undefined) {
           params.type = typeId;
         }
 
-        const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);
-        const container = contentData as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-        const content = container.MediaContainer?.Metadata || [];
-
-        const viewedContent = content.filter(
-          (item) => item.lastViewedAt && (item.viewCount as number) > 0
-        );
+        const viewedContent = await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit);
 
         const historyItems = viewedContent.map((item) => ({
           ratingKey: item.ratingKey,
@@ -1946,10 +1960,11 @@ export class PlexTools {
       try {
         if (libraryKey && library.key !== libraryKey) continue;
 
+        // Ranked by plays, as the merge below is, so one library's first `limit` rows hold
+        // every row of its own that can reach the merged top `limit`. Unwatched rows sort last.
         const params: Record<string, string | number> = {
-          ...firstPage(Math.ceil(limit / libraries.length) + 10),
-          // Newest viewed first: sorted by addedAt, a cap would keep mostly unwatched items.
-          sort: "lastViewedAt:desc",
+          ...firstPage(Math.max(1, limit)),
+          sort: "viewCount:desc",
         };
         if (typeId !== undefined) {
           params.type = typeId;
