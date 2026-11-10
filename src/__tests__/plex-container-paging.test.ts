@@ -99,6 +99,8 @@ describe("per-library requests", () => {
     }
   });
 
+  // Each library may hold the whole merged top `limit` (plex-fallback-top-n.test.ts), so the
+  // recency fallbacks ask each one for twice the limit: the limit plus in-progress headroom.
   it("getRecentlyWatched falls back to a capped first page per library", async () => {
     request.mockImplementation(fallbackServer());
 
@@ -106,7 +108,7 @@ describe("per-library requests", () => {
 
     expect(libraryCalls()).toHaveLength(2);
     for (const params of libraryCalls()) {
-      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 10, sort: "lastViewedAt:desc" });
+      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 20, sort: "lastViewedAt:desc" });
     }
   });
 
@@ -117,18 +119,18 @@ describe("per-library requests", () => {
 
     expect(libraryCalls()).toHaveLength(2);
     for (const params of libraryCalls()) {
-      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 10, sort: "lastViewedAt:desc" });
+      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 20, sort: "lastViewedAt:desc" });
     }
   });
 
-  it("getFullyWatched falls back to the most recently viewed items, not the most recently added", async () => {
+  it("getFullyWatched falls back to each library's most played items, as its merge ranks them", async () => {
     request.mockImplementation(fallbackServer());
 
     await tools.getFullyWatched(undefined, "all", 10);
 
     expect(libraryCalls()).toHaveLength(2);
     for (const params of libraryCalls()) {
-      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 15, sort: "lastViewedAt:desc" });
+      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 10, sort: "viewCount:desc" });
     }
   });
 });
