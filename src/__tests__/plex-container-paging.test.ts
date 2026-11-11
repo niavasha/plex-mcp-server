@@ -100,26 +100,28 @@ describe("per-library requests", () => {
   });
 
   // Each library may hold the whole merged top `limit` (plex-fallback-top-n.test.ts), so the
-  // recency fallbacks ask each one for twice the limit: the limit plus in-progress headroom.
-  it("getRecentlyWatched falls back to a capped first page per library", async () => {
+  // recency fallbacks ask each one for at least the limit, and for at least 100 rows so that a
+  // library with a few views is read in one request. They page on from there only while
+  // in-progress rows leave fewer than `limit` views.
+  it("getRecentlyWatched falls back to a first page per library", async () => {
     request.mockImplementation(fallbackServer());
 
     await tools.getRecentlyWatched(10);
 
     expect(libraryCalls()).toHaveLength(2);
     for (const params of libraryCalls()) {
-      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 20, sort: "lastViewedAt:desc" });
+      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 100, sort: "lastViewedAt:desc" });
     }
   });
 
-  it("getWatchHistory falls back to a capped first page per library", async () => {
+  it("getWatchHistory falls back to a first page per library", async () => {
     request.mockImplementation(fallbackServer());
 
     await tools.getWatchHistory(10);
 
     expect(libraryCalls()).toHaveLength(2);
     for (const params of libraryCalls()) {
-      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 20, sort: "lastViewedAt:desc" });
+      expect(params).toMatchObject({ "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 100, sort: "lastViewedAt:desc" });
     }
   });
 

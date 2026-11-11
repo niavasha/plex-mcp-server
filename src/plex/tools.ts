@@ -37,17 +37,6 @@ function firstPage(size: number) {
   return { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": size };
 }
 
-/**
- * Helper: rows to ask one library for when the caller keeps its `limit` most recently
- * viewed, merged across libraries. Any one library may hold the whole top `limit`, so at
- * least `limit`; doubled as headroom for in-progress rows, which sort among the views and
- * are filtered out afterwards. A heuristic: more in-progress rows than `limit` still cost
- * slots, but the cost stays one request per library.
- */
-function recencyPageSize(limit: number) {
-  return Math.max(1, limit) * 2;
-}
-
 /** Helper: wrap a JSON value as an MCP text response */
 function jsonResponse(data: unknown): MCPResponse {
   return { content: [{ type: "text", text: formatToolPayload(data, 2) }] };
@@ -1109,14 +1098,17 @@ export class PlexTools {
    * listing ends. For filters Plex can't apply itself. Stops on a short page, on Plex's
    * totalSize, on a page identical to the last (Plex ignored the offset), or after
    * PLEX_FILTERED_SCAN_MAX_PAGES. The last two are reported as scanCapped, since the
-   * listing may hold more matches.
+   * listing may hold more matches. `endsAt` marks the first row of a tail that can hold no
+   * more matches: the row and everything after it are dropped and the listing counts as
+   * finished.
    */
   private async collectFiltered(
     endpoint: string,
     params: Record<string, string | number>,
     pageSize: number,
     keep: (row: Record<string, unknown>) => boolean,
-    limit: number
+    limit: number,
+    endsAt?: (row: Record<string, unknown>) => boolean
   ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
     const kept: Record<string, unknown>[] = [];
     let received = 0;
@@ -1139,11 +1131,17 @@ export class PlexTools {
       }
       previousKeys = keys;
 
-      kept.push(...rows.filter(keep));
+      const end = endsAt ? rows.findIndex(endsAt) : -1;
+      kept.push(...(end < 0 ? rows : rows.slice(0, end)).filter(keep));
       received += rows.length;
 
       const totalSize = container?.totalSize;
-      if (kept.length >= limit || rows.length < pageSize || (typeof totalSize === "number" && received >= totalSize)) {
+      if (
+        end >= 0 ||
+        kept.length >= limit ||
+        rows.length < pageSize ||
+        (typeof totalSize === "number" && received >= totalSize)
+      ) {
         finished = true;
         break;
       }
@@ -1439,25 +1437,34 @@ export class PlexTools {
       const libraries = libContainer.MediaContainer?.Directory || [];
 
       let allContent: Record<string, unknown>[] = [];
+      let scanCapped = false;
       const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
       // The merge keeps the top `limit`, which one library may hold entirely, so each library
-      // is asked for at least `limit` rows. One request per library; the doubling is headroom
-      // for in-progress rows that the filter below drops (a heuristic).
-      const pageSize = Math.max(recencyPageSize(limit), PLEX_CONTAINER_SIZE);
+      // is asked for at least `limit` rows.
+      const pageSize = Math.max(limit, PLEX_CONTAINER_SIZE);
 
       for (const library of libraries) {
         try {
-          const params: Record<string, string | number> = {
-            ...firstPage(pageSize),
-            sort: metric === "plays" ? "viewCount:desc" : "lastViewedAt:desc",
-          };
+          const endpoint = `/library/sections/${library.key}/all`;
+          const params: Record<string, string | number> = {};
           if (typeId !== undefined) {
             params.type = typeId;
           }
 
-          const contentData = await this.client.makeRequest(`/library/sections/${library.key}/all`, params);
-          const container = contentData as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
-          allContent.push(...(container.MediaContainer?.Metadata || []));
+          if (metric === "plays") {
+            // Most played first: views come first, so one page holds the top rows.
+            const contentData = await this.client.makeRequest(endpoint, {
+              ...params,
+              ...firstPage(pageSize),
+              sort: "viewCount:desc",
+            });
+            const container = contentData as { MediaContainer?: { Metadata?: Record<string, unknown>[] } };
+            allContent.push(...(container.MediaContainer?.Metadata || []));
+          } else {
+            const recent = await this.viewedByRecency(endpoint, params, limit);
+            allContent.push(...recent.rows);
+            scanCapped ||= recent.scanCapped;
+          }
         } catch {
           continue;
         }
@@ -1474,6 +1481,7 @@ export class PlexTools {
       filteredContent = filteredContent.slice(0, limit);
 
       return jsonResponse({
+        ...(scanCapped && { scanCapped: true }),
         metric,
         mediaType,
         timeRange: `${timeRange} days`,
@@ -1826,21 +1834,26 @@ export class PlexTools {
   }
 
   /**
-   * One library's most recently viewed items with a completed view, in one request of
-   * recencyPageSize(limit) rows. The merged top `limit` may come from this library alone.
+   * One library's most recently viewed items with a completed view, newest first, up to
+   * `limit`; the merged top `limit` may come from this library alone. In-progress items sit
+   * among the views in lastViewedAt order and are filtered out, so the library is paged until
+   * `limit` views survive. Plex sorts never-viewed items, which have no lastViewedAt, last:
+   * the first one ends the walk, so a library with few views is read once.
    */
   private async viewedByRecency(
     endpoint: string,
     params: Record<string, string | number>,
     limit: number
-  ): Promise<Record<string, unknown>[]> {
-    const data = await this.client.makeRequest(endpoint, {
-      ...params,
-      ...firstPage(recencyPageSize(limit)),
-      sort: "lastViewedAt:desc",
-    });
-    const rows = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[] } }).MediaContainer?.Metadata || [];
-    return rows.filter((item) => item.lastViewedAt && (item.viewCount as number) > 0);
+  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
+    const pageLimit = Math.max(1, limit);
+    return this.collectFiltered(
+      endpoint,
+      { ...params, sort: "lastViewedAt:desc" },
+      Math.max(pageLimit, 100),
+      (item) => Boolean(item.lastViewedAt) && (item.viewCount as number) > 0,
+      pageLimit,
+      (item) => !item.lastViewedAt
+    );
   }
 
   private async getRecentlyWatchedFromLibraries(limit: number, mediaType: string): Promise<MCPResponse> {
@@ -1849,6 +1862,7 @@ export class PlexTools {
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     let allRecentItems: Record<string, unknown>[] = [];
+    let scanCapped = false;
     // Resolved outside the loop, whose catch would otherwise skip every library for a bad type.
     const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
@@ -1859,7 +1873,9 @@ export class PlexTools {
           params.type = typeId;
         }
 
-        allRecentItems.push(...(await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit)));
+        const recent = await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit);
+        allRecentItems.push(...recent.rows);
+        scanCapped ||= recent.scanCapped;
       } catch {
         continue;
       }
@@ -1869,6 +1885,7 @@ export class PlexTools {
     allRecentItems = allRecentItems.slice(0, limit);
 
     return jsonResponse({
+      ...(scanCapped && { scanCapped: true }),
       recentlyWatched: allRecentItems.map((item) => ({
         ratingKey: item.ratingKey,
         title: item.title,
@@ -1896,6 +1913,7 @@ export class PlexTools {
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     let allViewedItems: Record<string, unknown>[] = [];
+    let scanCapped = false;
     // Resolved outside the loop, whose catch would otherwise skip every library for a bad type.
     const typeId = mediaType !== "all" ? this.client.getPlexTypeId(mediaType) : undefined;
 
@@ -1906,9 +1924,10 @@ export class PlexTools {
           params.type = typeId;
         }
 
-        const viewedContent = await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit);
+        const viewed = await this.viewedByRecency(`/library/sections/${library.key}/all`, params, limit);
+        scanCapped ||= viewed.scanCapped;
 
-        const historyItems = viewedContent.map((item) => ({
+        const historyItems = viewed.rows.map((item) => ({
           ratingKey: item.ratingKey,
           title: item.title,
           type: item.type,
@@ -1936,6 +1955,7 @@ export class PlexTools {
     allViewedItems = allViewedItems.slice(0, limit);
 
     return jsonResponse({
+      ...(scanCapped && { scanCapped: true }),
       // Already shaped (incl. showContext, completed and progress) by the historyItems map above.
       watchHistory: allViewedItems,
       totalSessions: allViewedItems.length,
