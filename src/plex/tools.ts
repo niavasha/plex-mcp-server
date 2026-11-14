@@ -7,7 +7,7 @@ import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { createWriteStream } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { PlexClient } from "./client.js";
+import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
 import {
   DEFAULT_LIMITS,
@@ -1359,7 +1359,18 @@ export class PlexTools {
         totalSessions: filteredSessions.length,
         stats,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof PlexPagingError) {
+        // The history endpoint works but the walk broke partway: stats over a part of the
+        // range would be wrong, and the library overview would be a different answer.
+        console.error(`get_watch_stats: ${error.message}`);
+        return jsonResponse({
+          timeRange: `${timeRange} days`,
+          statType,
+          error: "Watch history could not be read completely",
+          message: error.message,
+        });
+      }
       return await this.getBasicStats(timeRange, statType);
     }
   }
