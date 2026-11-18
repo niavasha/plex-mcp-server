@@ -72,6 +72,80 @@ describe("getWatchStats", () => {
     expect(result.totalSessions).toBe(3);
     expect(paramsOf((path) => path === HISTORY)).toHaveLength(1);
   });
+
+  it("falls back to the library overview when the history endpoint is down", async () => {
+    request.mockImplementation(async (path: string) => {
+      if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies", type: "movie" }] } };
+      throw new Error("unavailable");
+    });
+
+    const result = parse(await tools.getWatchStats(30, "plays"));
+
+    expect(result.message).toMatch(/showing library overview/);
+    expect(result.libraries).toHaveLength(1);
+  });
+
+  it("reports an error, not the library overview, when a later page fails", async () => {
+    const server = historyServer(PLEX_CONTAINER_SIZE + 500);
+    request.mockImplementation(async (path: string, params: Params = {}) => {
+      if (params["X-Plex-Container-Start"] === PLEX_CONTAINER_SIZE) throw new Error("timeout");
+      return server(path, params);
+    });
+
+    const result = parse(await tools.getWatchStats(30, "plays"));
+
+    expect(result.error).toMatch(/could not be read completely/);
+    expect(result.message).toMatch(/page 2 after 1000 items: timeout/);
+    expect(result.stats).toBeUndefined();
+    expect(result.libraries).toBeUndefined();
+    expect(paramsOf((path) => path === "/library/sections")).toHaveLength(0);
+  });
+
+  it("reports an error when the server keeps sending the same page", async () => {
+    const page: Row[] = Array.from({ length: PLEX_CONTAINER_SIZE }, (_, n) => ({ historyKey: `h${n}`, type: "episode", viewedAt: now - 60 }));
+    request.mockResolvedValue({ MediaContainer: { Metadata: page } });
+
+    const result = parse(await tools.getWatchStats(30, "plays"));
+
+    expect(result.error).toMatch(/could not be read completely/);
+    expect(result.message).toMatch(/same page twice/);
+    // The repeat is caught on the second request, not after PLEX_MAX_PAGES of them.
+    expect(paramsOf((path) => path === HISTORY)).toHaveLength(2);
+  });
+});
+
+describe("fetchAllPages", () => {
+  const fullPage = (prefix: string): Row[] => Array.from({ length: PLEX_CONTAINER_SIZE }, (_, n) => ({ ratingKey: `${prefix}${n}` }));
+
+  it("throws the first page's failure as it came", async () => {
+    const failure = new Error("unavailable");
+    request.mockRejectedValue(failure);
+
+    await expect(client.fetchAllPages("/library/all", {})).rejects.toBe(failure);
+  });
+
+  it("does not take rows without keys for a repeated page", async () => {
+    const unkeyed: Row[] = Array.from({ length: PLEX_CONTAINER_SIZE }, () => ({ title: "x" }));
+    request
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: unkeyed } })
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: unkeyed } })
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: [] } });
+
+    const rows = await client.fetchAllPages("/library/all", {});
+
+    expect(rows).toHaveLength(PLEX_CONTAINER_SIZE * 2);
+  });
+
+  it("keeps walking when consecutive pages differ", async () => {
+    request
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: fullPage("a") } })
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: fullPage("b") } })
+      .mockResolvedValueOnce({ MediaContainer: { Metadata: [{ ratingKey: "c0" }] } });
+
+    const rows = await client.fetchAllPages("/library/all", {});
+
+    expect(rows).toHaveLength(PLEX_CONTAINER_SIZE * 2 + 1);
+  });
 });
 
 describe("per-library requests", () => {

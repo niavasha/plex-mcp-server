@@ -13,6 +13,18 @@ import { validatePlexId } from "../shared/utils.js";
 
 const PLEX_DISCOVER_BASE_URL = "https://discover.provider.plex.tv";
 
+/**
+ * A paged listing failed after at least one page had been read, or could not be walked to
+ * its end. The rows read so far are incomplete, so callers must not present them as the
+ * whole listing.
+ */
+export class PlexPagingError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "PlexPagingError";
+  }
+}
+
 export class PlexClient implements PlexAPIClient {
   constructor(private config: PlexConfig) {
     // Strip trailing slashes to prevent double-slash in URLs
@@ -215,29 +227,56 @@ export class PlexClient implements PlexAPIClient {
    * Fetch every item of a listing, one PLEX_CONTAINER_SIZE page at a time.
    * Some endpoints omit totalSize, so a missing total means "unknown" and only
    * a short or empty page ends the walk.
+   *
+   * A failure on the first page is thrown as it came, so callers can tell an endpoint that
+   * is down from a walk that broke partway. Every later failure is a PlexPagingError: a
+   * request that failed, a page identical to the one before it (Plex ignored the offset),
+   * or PLEX_MAX_PAGES reached.
    */
   async fetchAllPages(
     endpoint: string,
     params: Record<string, string | number>
   ): Promise<Record<string, unknown>[]> {
     const all: Record<string, unknown>[] = [];
+    let previousKeys: string | undefined;
 
     for (let page = 0; page < PLEX_MAX_PAGES; page++) {
-      const data = await this.makeRequest(endpoint, {
-        ...params,
-        "X-Plex-Container-Start": all.length,
-        "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
-      });
+      let data: Record<string, unknown>;
+      try {
+        data = await this.makeRequest(endpoint, {
+          ...params,
+          "X-Plex-Container-Start": all.length,
+          "X-Plex-Container-Size": PLEX_CONTAINER_SIZE,
+        });
+      } catch (error) {
+        if (page === 0) throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new PlexPagingError(`Plex listing ${endpoint} failed on page ${page + 1} after ${all.length} items: ${reason}`, {
+          cause: error,
+        });
+      }
       const container = data as { MediaContainer?: { totalSize?: number; Metadata?: Record<string, unknown>[] } };
       const items = container.MediaContainer?.Metadata || [];
       const totalSize = container.MediaContainer?.totalSize;
+
+      // Rows without a key can't be compared, so they never count as a repeat.
+      const keys = items.map((item) => item.historyKey ?? item.ratingKey);
+      if (keys.length > 0 && keys.every((key) => key !== undefined)) {
+        const pageKeys = JSON.stringify(keys);
+        if (pageKeys === previousKeys) {
+          throw new PlexPagingError(
+            `Plex listing ${endpoint} returned the same page twice at item ${all.length}; the server ignored X-Plex-Container-Start`
+          );
+        }
+        previousKeys = pageKeys;
+      }
       all.push(...items);
 
       if (items.length < PLEX_CONTAINER_SIZE) return all;
       if (typeof totalSize === "number" && all.length >= totalSize) return all;
     }
 
-    throw new Error(
+    throw new PlexPagingError(
       `Plex listing ${endpoint} did not finish within ${PLEX_MAX_PAGES} pages of ${PLEX_CONTAINER_SIZE} items`
     );
   }
