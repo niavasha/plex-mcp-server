@@ -85,6 +85,18 @@ describe("getWatchStats", () => {
     expect(result.libraries).toHaveLength(1);
   });
 
+  it("says why it fell back when the first history request fails", async () => {
+    request.mockImplementation(async (path: string) => {
+      if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies", type: "movie" }] } };
+      throw new Error("Request failed with status code 401");
+    });
+
+    const result = parse(await tools.getWatchStats(30, "plays"));
+
+    expect(result.libraries).toHaveLength(1);
+    expect(result.historyError).toBe("Request failed with status code 401");
+  });
+
   it("reports an error, not the library overview, when a later page fails", async () => {
     const server = historyServer(PLEX_CONTAINER_SIZE + 500);
     request.mockImplementation(async (path: string, params: Params = {}) => {
