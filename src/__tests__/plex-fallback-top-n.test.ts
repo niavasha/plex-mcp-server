@@ -174,6 +174,70 @@ describe("items the filter drops do not take the place of ones it keeps", () => 
   });
 });
 
+describe("more in-progress items than the limit ahead of the views", () => {
+  // 150 in-progress items are the most recent in library 1: more than the limit, and more than
+  // the first page of 100 rows, so the views are only reached by paging on.
+  const crowded = () => ({
+    "1": [...inProgress("1", 150, 4_000_000), ...viewed("1", 25, 3_000_000, 900)],
+    "2": viewed("2", 25, 2_000_000, 600),
+  });
+
+  it("getRecentlyWatched", async () => {
+    serve(crowded());
+
+    const result = parse(await tools.getRecentlyWatched(LIMIT));
+
+    expect(keysOf(result.recentlyWatched)).toEqual(topOf("1", LIMIT));
+    expect(result.scanCapped).toBeUndefined();
+  });
+
+  it("getWatchHistory", async () => {
+    serve(crowded());
+
+    const result = parse(await tools.getWatchHistory(LIMIT));
+
+    expect(keysOf(result.watchHistory)).toEqual(topOf("1", LIMIT));
+    expect(result.scanCapped).toBeUndefined();
+  });
+
+  it("getPopularContent by recency", async () => {
+    serve(crowded());
+
+    const result = parse(await tools.getPopularContent(30, "recent", "all", LIMIT));
+
+    expect(keysOf(result.popularContent)).toEqual(topOf("1", LIMIT));
+    expect(result.scanCapped).toBeUndefined();
+  });
+
+  it("stops at the first never-viewed item, not at the end of the library", async () => {
+    // 150 in progress, 10 views, then 5,000 never viewed: fewer views than the limit.
+    const spy = serve({
+      "1": [
+        ...inProgress("1", 150, 4_000_000),
+        ...viewed("1", 10, 3_000_000, 900),
+        ...Array.from({ length: 5_000 }, (_, n) => ({ ratingKey: `1-u${n}`, type: "movie", viewCount: 0 })),
+      ],
+    });
+
+    const result = parse(await tools.getRecentlyWatched(LIMIT));
+
+    expect(keysOf(result.recentlyWatched)).toEqual(topOf("1", 10));
+    expect(result.scanCapped).toBeUndefined();
+    const libraryRequests = spy.mock.calls.filter((call: unknown[]) => /^\/library\/sections\/\d+\/all$/.test(call[0] as string));
+    expect(libraryRequests).toHaveLength(2);
+  });
+
+  it("reports scanCapped when the paging cap is reached before enough views", async () => {
+    // 6,000 in-progress rows: more than the 50 pages of 100 the walk is allowed.
+    serve({ "1": [...inProgress("1", 6_000, 9_000_000), ...viewed("1", 25, 3_000_000, 900)] });
+
+    const result = parse(await tools.getRecentlyWatched(LIMIT));
+
+    expect(result.recentlyWatched).toEqual([]);
+    expect(result.scanCapped).toBe(true);
+  });
+});
+
 describe("a library with fewer views than the limit costs one request", () => {
   /** 30 views, then a long tail of items never viewed: the shape of most real libraries. */
   const fewViews = () => ({
