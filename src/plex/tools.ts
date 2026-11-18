@@ -1861,10 +1861,12 @@ export class PlexTools {
     limit: number
   ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
     const pageLimit = Math.max(1, limit);
+    // A page of 2 × limit leaves room for up to `limit` in-progress items, so a library
+    // with a few of them among its views is still read in one request.
     return this.collectFiltered(
       endpoint,
       { ...params, sort: "lastViewedAt:desc" },
-      Math.max(pageLimit, 100),
+      Math.max(2 * pageLimit, 100),
       (item) => Boolean(item.lastViewedAt) && (item.viewCount as number) > 0,
       pageLimit,
       (item) => !item.lastViewedAt
