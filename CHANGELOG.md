@@ -8,11 +8,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 * **deps:** bump @hono/node-server from 2.1.5 to 2.1.8 ([#229](https://github.com/niavasha/plex-mcp-server/issues/229)) ([f72d703](https://github.com/niavasha/plex-mcp-server/commit/f72d70345ca36c436783e2a4d4aa8999879d3505))
-* **deps:** bump hono and @hono/node-server to clear npm audit findings ([e5fd5b3](https://github.com/niavasha/plex-mcp-server/commit/e5fd5b3fa3e8bc11a1150f5ca819ed8fd2c1f971))
-* **deps:** bump hono and @hono/node-server to clear npm audit findings ([75dd569](https://github.com/niavasha/plex-mcp-server/commit/75dd56954ba91537020b0c367280c2c3478d5b4d))
 * **deps:** bump hono from 4.13.13 to 4.13.19 ([#234](https://github.com/niavasha/plex-mcp-server/issues/234)) ([71a320a](https://github.com/niavasha/plex-mcp-server/commit/71a320ae4fafd11b3455c07c235b78ef5ae82686))
 * **deps:** bump the production-dependencies group with 2 updates ([#232](https://github.com/niavasha/plex-mcp-server/issues/232)) ([5ee6db7](https://github.com/niavasha/plex-mcp-server/commit/5ee6db7d8f5520839bb71b202bce88a851673c0e))
-* **plex:** follow-ups from the [#230](https://github.com/niavasha/plex-mcp-server/issues/230) and [#231](https://github.com/niavasha/plex-mcp-server/issues/231) reviews ([1f846a9](https://github.com/niavasha/plex-mcp-server/commit/1f846a90275448064607920aad832af04c76356d))
 * **plex:** page the recency fallbacks until enough completed views are found ([b56e518](https://github.com/niavasha/plex-mcp-server/commit/b56e51898973fd028b734a14c866bbe3e88a12b6)), closes [#227](https://github.com/niavasha/plex-mcp-server/issues/227)
 * **plex:** read recency fallbacks in pages of 2 x limit ([7fd6f84](https://github.com/niavasha/plex-mcp-server/commit/7fd6f849a9a6457bb8c1e64c52563a6deffe4a8b))
 * **plex:** report a partial history walk in get_watch_stats instead of the library overview ([f0a3b73](https://github.com/niavasha/plex-mcp-server/commit/f0a3b73546bba2752d51c78cc3d2d25a932fd798)), closes [#226](https://github.com/niavasha/plex-mcp-server/issues/226)
