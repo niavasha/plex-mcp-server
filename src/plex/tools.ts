@@ -1369,7 +1369,11 @@ export class PlexTools {
           message: error.message,
         });
       }
-      return await this.getBasicStats(timeRange, statType);
+      // The first history request failed, so the endpoint itself is unusable. Fall back to
+      // the library overview, but say why, so a 401 is not mistaken for an empty history.
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(`get_watch_stats: history unavailable, showing library overview: ${reason}`);
+      return await this.getBasicStats(timeRange, statType, reason);
     }
   }
 
@@ -1857,10 +1861,12 @@ export class PlexTools {
     limit: number
   ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
     const pageLimit = Math.max(1, limit);
+    // A page of 2 × limit leaves room for up to `limit` in-progress items, so a library
+    // with a few of them among its views is still read in one request.
     return this.collectFiltered(
       endpoint,
       { ...params, sort: "lastViewedAt:desc" },
-      Math.max(pageLimit, 100),
+      Math.max(2 * pageLimit, 100),
       (item) => Boolean(item.lastViewedAt) && (item.viewCount as number) > 0,
       pageLimit,
       (item) => !item.lastViewedAt
@@ -2035,13 +2041,14 @@ export class PlexTools {
     });
   }
 
-  private async getBasicStats(timeRange: number, statType: string): Promise<MCPResponse> {
+  private async getBasicStats(timeRange: number, statType: string, historyError?: string): Promise<MCPResponse> {
     const librariesData = await this.client.makeRequest("/library/sections");
     const libContainer = librariesData as { MediaContainer?: { Directory?: Record<string, unknown>[] } };
     const libraries = libContainer.MediaContainer?.Directory || [];
 
     return jsonResponse({
       message: "Detailed statistics not available, showing library overview",
+      ...(historyError !== undefined && { historyError }),
       libraries: libraries.map((lib) => ({
         title: lib.title,
         type: lib.type,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlexClient } from "../plex/client.js";
 import { PlexTools } from "../plex/tools.js";
-import { PLEX_CONTAINER_SIZE } from "../plex/constants.js";
+import { DEFAULT_LIMITS, PLEX_CONTAINER_SIZE } from "../plex/constants.js";
 
 // The per-library tools merge each library's rows, sort them and keep the top `limit`.
 // Now that Plex honours the size (#219), that is only the true top `limit` if every library
@@ -278,6 +278,36 @@ describe("a library with fewer views than the limit costs one request", () => {
 
     expect(keysOf(result.popularContent)).toHaveLength(30);
     expect(result.scanCapped).toBeUndefined();
+    expect(libraryRequests(spy)).toBe(1);
+  });
+});
+
+describe("a few in-progress items among a full page of views still cost one request", () => {
+  // One in-progress item, then twice the limit in views. A page of exactly `limit` rows
+  // keeps limit - 1 views and has to fetch again; a page of 2 × limit has room for both.
+  const busy = (limit: number) => ({
+    "1": [...inProgress("1", 1, 4_000_000), ...viewed("1", 2 * limit + 10, 3_000_000, 900)],
+  });
+  const libraryRequests = (spy: ReturnType<typeof serve>) =>
+    spy.mock.calls.filter((call: unknown[]) => /^\/library\/sections\/\d+\/all$/.test(call[0] as string)).length;
+
+  it("getRecentlyWatched at its default limit", async () => {
+    const limit = DEFAULT_LIMITS.recentlyWatched;
+    const spy = serve(busy(limit));
+
+    const result = parse(await tools.getRecentlyWatched());
+
+    expect(keysOf(result.recentlyWatched)).toEqual(topOf("1", limit));
+    expect(libraryRequests(spy)).toBe(1);
+  });
+
+  it("getWatchHistory at its default limit", async () => {
+    const limit = DEFAULT_LIMITS.watchHistory;
+    const spy = serve(busy(limit));
+
+    const result = parse(await tools.getWatchHistory());
+
+    expect(keysOf(result.watchHistory)).toEqual(topOf("1", limit));
     expect(libraryRequests(spy)).toBe(1);
   });
 });
