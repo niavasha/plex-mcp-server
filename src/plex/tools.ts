@@ -1098,7 +1098,9 @@ export class PlexTools {
    * listing ends. For filters Plex can't apply itself. Stops on a short page, on Plex's
    * totalSize, on a page identical to the last (Plex ignored the offset), or after
    * PLEX_FILTERED_SCAN_MAX_PAGES. The last two are reported as scanCapped, since the
-   * listing may hold more matches. `endsAt` marks the first row of a tail that can hold no
+   * listing may hold more matches. So is a request that fails after the first page: the
+   * rows kept so far are returned. A failing first page throws, as there is nothing to keep.
+   * `endsAt` marks the first row of a tail that can hold no
    * more matches: the row and everything after it are dropped and the listing counts as
    * finished.
    */
@@ -1116,11 +1118,23 @@ export class PlexTools {
     let finished = false;
 
     for (let page = 0; page < PLEX_FILTERED_SCAN_MAX_PAGES; page++) {
-      const data = await this.client.makeRequest(endpoint, {
-        ...params,
-        "X-Plex-Container-Start": received,
-        "X-Plex-Container-Size": pageSize,
-      });
+      let data: unknown;
+      try {
+        data = await this.client.makeRequest(endpoint, {
+          ...params,
+          "X-Plex-Container-Start": received,
+          "X-Plex-Container-Size": pageSize,
+        });
+      } catch (error) {
+        if (page === 0) {
+          throw error;
+        }
+        // Keep what earlier pages gave; finished stays false, so the result is scanCapped.
+        console.error(
+          `collectFiltered: page ${page + 1} of ${endpoint} failed, returning ${kept.length} rows read so far: ${this.getErrorMessage(error)}`
+        );
+        break;
+      }
       const container = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: unknown } })
         .MediaContainer;
       const rows = container?.Metadata || [];

@@ -238,6 +238,70 @@ describe("more in-progress items than the limit ahead of the views", () => {
   });
 });
 
+describe("a later page of one library fails", () => {
+  // 90 in-progress items fill most of the first page of 100, so library 1 keeps only 10 views
+  // from it and needs a second request, which fails. Library 2 is older and healthy.
+  const crowdedLibrary = () => ({
+    "1": [...inProgress("1", 90, 4_000_000), ...viewed("1", 60, 3_000_000, 900)],
+    "2": viewed("2", 25, 2_000_000, 600),
+  });
+
+  /** Library 1 answers its first page and then goes down. */
+  const serveWithLibraryOneDownAfterFirstPage = (rows: Record<string, Row[]>) => {
+    const healthy = libraryServer(rows);
+    return vi.spyOn(client, "makeRequest").mockImplementation(async (path: string, params: Params = {}) => {
+      if (path === "/library/sections/1/all" && Number(params["X-Plex-Container-Start"] ?? 0) > 0) {
+        throw new Error("timeout");
+      }
+      return healthy(path, params);
+    });
+  };
+
+  const fromLibraryOne = (items: Row[]) => items.filter((item) => String(item.ratingKey).startsWith("1-"));
+
+  it("getRecentlyWatched keeps the rows already read and reports scanCapped", async () => {
+    serveWithLibraryOneDownAfterFirstPage(crowdedLibrary());
+
+    const result = parse(await tools.getRecentlyWatched(LIMIT));
+
+    expect(keysOf(fromLibraryOne(result.recentlyWatched))).toEqual(topOf("1", 10));
+    expect(result.recentlyWatched).toHaveLength(LIMIT);
+    expect(result.scanCapped).toBe(true);
+  });
+
+  it("getWatchHistory keeps the rows already read and reports scanCapped", async () => {
+    serveWithLibraryOneDownAfterFirstPage(crowdedLibrary());
+
+    const result = parse(await tools.getWatchHistory(LIMIT));
+
+    expect(keysOf(fromLibraryOne(result.watchHistory))).toEqual(topOf("1", 10));
+    expect(result.scanCapped).toBe(true);
+  });
+
+  it("getPopularContent by recency keeps the rows already read and reports scanCapped", async () => {
+    serveWithLibraryOneDownAfterFirstPage(crowdedLibrary());
+
+    const result = parse(await tools.getPopularContent(30, "recent", "all", LIMIT));
+
+    expect(keysOf(fromLibraryOne(result.popularContent))).toEqual(topOf("1", 10));
+    expect(result.scanCapped).toBe(true);
+  });
+
+  it("still skips a library whose first page fails", async () => {
+    const healthy = libraryServer(crowdedLibrary());
+    vi.spyOn(client, "makeRequest").mockImplementation(async (path: string, params: Params = {}) => {
+      if (path === "/library/sections/1/all") throw new Error("timeout");
+      return healthy(path, params);
+    });
+
+    const result = parse(await tools.getRecentlyWatched(LIMIT));
+
+    expect(fromLibraryOne(result.recentlyWatched)).toEqual([]);
+    expect(keysOf(result.recentlyWatched)).toEqual(topOf("2", LIMIT));
+    expect(result.scanCapped).toBeUndefined();
+  });
+});
+
 describe("a library with fewer views than the limit costs one request", () => {
   /** 30 views, then a long tail of items never viewed: the shape of most real libraries. */
   const fewViews = () => ({
