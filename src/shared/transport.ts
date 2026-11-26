@@ -15,7 +15,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-type TransportMode = "stdio" | "http";
+export type TransportMode = "stdio" | "http";
 
 /** URL path the MCP endpoint is served on unless --path or MCP_PATH says otherwise. */
 export const DEFAULT_MCP_PATH = "/mcp";
@@ -407,13 +407,15 @@ function positiveIntFromEnv(name: string, fallback: number): number {
  * Start the server on the transport selected by argv.
  *
  * Takes a factory rather than an instance: HTTP mode needs a fresh Server per
- * session, and only the caller knows how to build one.
+ * session, and only the caller knows how to build one. The factory is told
+ * which transport is active, since some tools behave differently over HTTP.
  */
 export async function startServer(
-  getServer: () => Server,
+  buildServer: (transport: TransportMode) => Server,
   serverName: string
 ): Promise<void> {
   const { transport, port, mcpPath } = parseArgs();
+  const getServer = () => buildServer(transport);
 
   if (transport === "stdio") {
     // One process, one client, one session — no session tracking needed.

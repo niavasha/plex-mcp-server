@@ -39,7 +39,8 @@ const GET_LIBRARY_ITEMS_SCHEMA = {
 
 const EXPORT_LIBRARY_SCHEMA = {
   name: "export_library",
-  description: "Export a full library to a JSON file (within ./exports)",
+  description:
+    "Export a full library as JSON. Over stdio it is written to a file under ./exports; over HTTP it is returned as an MCP resource link to read with resources/read",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -52,7 +53,7 @@ const EXPORT_LIBRARY_SCHEMA = {
       outputPath: {
         type: "string",
         description:
-          "Optional relative path under ./exports (default: library_{key}_{timestamp}.json)",
+          "Optional relative path under ./exports (default: library_{key}_{timestamp}.json). stdio only; ignored over HTTP",
       },
       pageSize: { type: "number", description: "Items per page for export (default: 500)", default: 500 },
     },
