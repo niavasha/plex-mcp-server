@@ -15,8 +15,10 @@ import {
   PlexTools,
   createPlexToolRegistry,
   DEFAULT_PLEX_URL,
+  toWireResponse,
 } from "./plex/index.js";
-import { startServer } from "./shared/transport.js";
+import { ExportStore, registerExportResources } from "./plex/export-store.js";
+import { startServer, type TransportMode } from "./shared/transport.js";
 import { SERVER_VERSION } from "./shared/version.js";
 import { listedToolSchemas } from "./shared/tool-list.js";
 
@@ -35,7 +37,7 @@ class UnifiedMCPServer {
    * A factory rather than a constructor because HTTP transport needs one
    * Server per session — a single instance cannot back concurrent clients.
    */
-  static createServer(): Server {
+  static createServer(transport: TransportMode = "stdio"): Server {
     const server = new Server(
       { name: "plex-mcp-server", version: SERVER_VERSION },
       { capabilities: { tools: {} } }
@@ -51,7 +53,11 @@ class UnifiedMCPServer {
       token: plexToken,
     });
 
-    const plexTools = new PlexTools(plexClient);
+    // HTTP clients cannot read the server's files, so exports are served as MCP resources.
+    const exportStore = transport === "http" ? new ExportStore() : undefined;
+    if (exportStore) registerExportResources(server, exportStore);
+
+    const plexTools = new PlexTools(plexClient, { exportStore });
     const traktFunctions = new TraktMCPFunctions(plexClient);
     const plexRegistry = createPlexToolRegistry(plexTools, {
       traktFunctions,
@@ -69,7 +75,7 @@ class UnifiedMCPServer {
       const a = (args ?? {}) as Record<string, unknown>;
 
       try {
-        if (plexRegistry.has(name)) return await plexRegistry.handle(name, a);
+        if (plexRegistry.has(name)) return toWireResponse(await plexRegistry.handle(name, a));
         if (traktRegistry.has(name)) return await traktRegistry.handle(name, a);
         return await arrRegistry.handle(name, a);
       } catch (error) {
@@ -84,7 +90,7 @@ class UnifiedMCPServer {
 }
 
 export async function main() {
-  await startServer(() => UnifiedMCPServer.createServer(), "Plex MCP server (unified)");
+  await startServer((transport) => UnifiedMCPServer.createServer(transport), "Plex MCP server (unified)");
 }
 
 main().catch((error) => {

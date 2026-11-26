@@ -8,9 +8,21 @@ export interface PlexConfig {
   clientIdentifier?: string;
 }
 
+/** An MCP resource_link block: points at a resource the client fetches with resources/read. */
+export interface ResourceLinkContent {
+  type: "resource_link";
+  uri: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+  description?: string;
+}
+
 export interface MCPResponse {
   [key: string]: unknown;
   content: Array<{ type: string; text: string }>;
+  /** Appended to `content` by the server when the response goes on the wire. */
+  resourceLinks?: ResourceLinkContent[];
 }
 
 export interface LibraryMovieRecord {

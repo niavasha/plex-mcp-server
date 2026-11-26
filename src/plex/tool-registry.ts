@@ -18,6 +18,11 @@ type ToolRegistryOptions = {
   traktFunctions?: TraktStatsProvider;
 };
 
+/** Moves a response's resource links into `content`, where MCP clients look for them. */
+export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse) {
+  return { ...response, content: [...response.content, ...resourceLinks] };
+}
+
 // Helper: wrap a handler to check mutative ops are enabled at runtime
 function guardMutativeOp(handler: ToolHandler): ToolHandler {
   return async (args: Record<string, unknown>) => {

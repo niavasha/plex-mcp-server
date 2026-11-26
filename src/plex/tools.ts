@@ -9,6 +9,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
+import { ExportStore } from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -132,10 +133,18 @@ type MetadataUpdateInput = {
 
 type EditableTagType = "genre" | "collection" | "role" | "director";
 
+export interface PlexToolsOptions {
+  /** HTTP transport: export_library stores files here and returns a resource link instead of a server path. */
+  exportStore?: ExportStore;
+}
+
 export class PlexTools {
   private machineIdentifier?: string;
 
-  constructor(private client: PlexClient) {}
+  constructor(
+    private client: PlexClient,
+    private options: PlexToolsOptions = {}
+  ) {}
 
   // ── Core tools ──────────────────────────────────────────────
 
@@ -216,9 +225,14 @@ export class PlexTools {
   ): Promise<MCPResponse> {
     validatePlexId(libraryKey, "libraryKey");
 
+    const exportStore = this.options.exportStore;
+    const exportName = `library_${libraryKey}_${Date.now()}.json`;
     const baseExportDir = path.resolve(process.cwd(), "exports");
     let exportPath: string;
-    if (outputPath) {
+    if (exportStore) {
+      // The client cannot use a server path, so outputPath is not honoured here.
+      exportPath = await exportStore.reserve(exportName);
+    } else if (outputPath) {
       if (path.isAbsolute(outputPath)) {
         throw new McpError(ErrorCode.InvalidRequest, "Absolute paths are not allowed for outputPath");
       }
@@ -233,7 +247,7 @@ export class PlexTools {
       }
       exportPath = resolvedPath;
     } else {
-      exportPath = path.join(baseExportDir, `library_${libraryKey}_${Date.now()}.json`);
+      exportPath = path.join(baseExportDir, exportName);
     }
 
     await mkdir(path.dirname(exportPath), { recursive: true });
@@ -310,13 +324,40 @@ export class PlexTools {
       throw new McpError(ErrorCode.InternalError, `Failed to export library: ${message}`);
     }
 
+    const exportType = type || "all";
+    const exportedSize = totalSize || totalExported;
+
+    if (exportStore) {
+      const file = await exportStore.publish(exportName);
+      return {
+        ...jsonResponse({
+          exported: true,
+          libraryKey,
+          type: exportType,
+          totalExported,
+          totalSize: exportedSize,
+          resourceUri: file.uri,
+        }),
+        resourceLinks: [
+          {
+            type: "resource_link",
+            uri: file.uri,
+            name: file.name,
+            mimeType: file.mimeType,
+            size: file.size,
+            description: `Library ${libraryKey} export (${totalExported} items). Fetch it with resources/read.`,
+          },
+        ],
+      };
+    }
+
     return jsonResponse({
       exported: true,
       libraryKey,
-      type: type || "all",
+      type: exportType,
       outputPath: exportPath,
       totalExported,
-      totalSize: totalSize || totalExported,
+      totalSize: exportedSize,
     });
   }
 
