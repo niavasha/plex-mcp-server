@@ -14,6 +14,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { positiveIntFromEnv } from "./utils.js";
 
 export type TransportMode = "stdio" | "http";
 
@@ -418,13 +419,6 @@ function parseArgs(): { transport: TransportMode; port: number; mcpPath: string 
   }
 
   return { transport, port, mcpPath };
-}
-
-function positiveIntFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const value = parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 /**

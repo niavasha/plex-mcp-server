@@ -9,7 +9,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore, randomExportName, type ExportFile } from "./export-store.js";
+import { ExportStore, exportTooLargeMessage, randomExportName, type ExportFile } from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -264,13 +264,25 @@ export class PlexTools {
       streamError = error as Error;
     });
 
+    // Over HTTP the export must fit in the session's space. Stop as soon as it cannot,
+    // rather than write the whole file only to refuse it.
+    const maxBytes = exportStore?.maxBytes ?? Infinity;
+    let bytesWritten = 0;
+    const write = (chunk: string) => {
+      bytesWritten += Buffer.byteLength(chunk, "utf8");
+      if (bytesWritten > maxBytes) {
+        throw new Error(exportTooLargeMessage(maxBytes));
+      }
+      return this.writeToStream(stream, chunk);
+    };
+
     let offset = 0;
     let totalSize = 0;
     let totalExported = 0;
     let isFirst = true;
 
     try {
-      await this.writeToStream(stream, "[\n");
+      await write("[\n");
 
       while (true) {
         const params: Record<string, string | number> = {
@@ -290,11 +302,10 @@ export class PlexTools {
 
         for (const item of items) {
           if (!isFirst) {
-            await this.writeToStream(stream, ",\n");
+            await write(",\n");
           }
 
-          await this.writeToStream(
-            stream,
+          await write(
             JSON.stringify({
               ratingKey: item.ratingKey,
               title: item.title,
@@ -316,7 +327,7 @@ export class PlexTools {
         }
       }
 
-      await this.writeToStream(stream, "\n]\n");
+      await write("\n]\n");
       await this.finishStream(stream);
     } catch (error) {
       // Read before destroy(): destroying with a write still buffered makes the stream

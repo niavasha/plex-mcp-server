@@ -23,9 +23,14 @@ import {
   McpError,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { positiveIntFromEnv } from "../shared/utils.js";
 
 export const EXPORT_URI_PREFIX = "plex-export:///";
 export const EXPORT_MIME_TYPE = "application/json";
+
+export const EXPORT_MAX_BYTES_ENV_VAR = "PLEX_EXPORT_MAX_BYTES";
+/** Space a session's exports may take together unless PLEX_EXPORT_MAX_BYTES says otherwise. */
+export const DEFAULT_EXPORT_MAX_BYTES = 256 * 1024;
 
 const NAME_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const NAME_LENGTH = 32;
@@ -52,6 +57,8 @@ export interface ExportFile {
 export interface ExportStoreOptions {
   /** Directory to create the session directory in. Defaults to one shared per process. */
   root?: string;
+  /** Bytes the session's exports may take together. Defaults to PLEX_EXPORT_MAX_BYTES. */
+  maxBytes?: number;
 }
 
 let processRoot: Promise<string> | undefined;
@@ -145,12 +152,22 @@ async function createSessionDir(root: string): Promise<string> {
   return dir;
 }
 
+/** Why an export was refused for being larger than a session may keep. */
+export function exportTooLargeMessage(maxBytes: number): string {
+  return `The export is larger than the ${maxBytes} bytes a session may keep (set ${EXPORT_MAX_BYTES_ENV_VAR} to change it)`;
+}
+
 export class ExportStore {
   private dirPromise?: Promise<string>;
   private disposed = false;
   private readonly files = new Map<string, { file: ExportFile; filePath: string }>();
 
-  constructor(private readonly options: ExportStoreOptions = {}) {}
+  /** Bytes the session's exports may take together. Publishing removes the oldest to stay within it. */
+  readonly maxBytes: number;
+
+  constructor(private readonly options: ExportStoreOptions = {}) {
+    this.maxBytes = options.maxBytes ?? positiveIntFromEnv(EXPORT_MAX_BYTES_ENV_VAR, DEFAULT_EXPORT_MAX_BYTES);
+  }
 
   private assertOpen(): void {
     if (this.disposed) {
@@ -195,7 +212,11 @@ export class ExportStore {
     }
   }
 
-  /** Makes a fully written, reserved file readable by the client. */
+  /**
+   * Makes a fully written, reserved file readable by the client. Removes the session's
+   * oldest exports until all of them fit in maxBytes. A file that alone does not fit is
+   * refused.
+   */
   async publish(name: string): Promise<ExportFile> {
     const filePath = await this.reserve(name);
     const file: ExportFile = {
@@ -204,13 +225,37 @@ export class ExportStore {
       mimeType: EXPORT_MIME_TYPE,
       size: (await stat(filePath)).size,
     };
+    if (file.size > this.maxBytes) {
+      throw new Error(exportTooLargeMessage(this.maxBytes));
+    }
     // A concurrent reserve() may have replaced the directory while this one waited.
     this.assertOpen();
     if ((await this.dirPromise?.catch(() => undefined)) !== path.dirname(filePath)) {
       throw new Error("The export directory was replaced while the export ran");
     }
     this.files.set(file.uri, { file, filePath });
+    await this.evictOldest();
     return file;
+  }
+
+  /** Removes the oldest exports until the session's exports fit in maxBytes again. */
+  private async evictOldest(): Promise<void> {
+    let total = 0;
+    for (const { file } of this.files.values()) total += file.size;
+    // A Map iterates in insertion order, so the oldest come first. The newest always
+    // fits on its own, so the loop stops before reaching it.
+    const evicted: string[] = [];
+    for (const [uri, { file, filePath }] of this.files) {
+      if (total <= this.maxBytes) break;
+      this.files.delete(uri);
+      total -= file.size;
+      evicted.push(filePath);
+    }
+    for (const filePath of evicted) {
+      await rm(filePath, { force: true }).catch((error) => {
+        console.error("Failed to remove an export over the session's space limit:", error);
+      });
+    }
   }
 
   list(): ExportFile[] {

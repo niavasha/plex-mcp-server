@@ -60,6 +60,52 @@ describe("ExportStore", () => {
     expect(await store.read(file.uri)).toBe("[1]\n");
   });
 
+  // #246 item 1: a session that exported repeatedly grew by one full export each time.
+  it("removes the session's oldest exports once a new one does not fit", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 10 });
+    try {
+      const published = [];
+      for (const name of ["a.json", "b.json", "c.json"]) {
+        await writeFile(await small.reserve(name), "[12]");
+        published.push(await small.publish(name));
+      }
+      const [oldest, ...kept] = published;
+
+      expect(small.list()).toEqual(kept);
+      await expect(small.read(oldest.uri)).rejects.toThrow(/Unknown resource/);
+      expect(await readdir(path.dirname(await small.reserve("x.json")))).toEqual(["b.json", "c.json"]);
+    } finally {
+      await small.dispose();
+    }
+  });
+
+  it("refuses an export that alone is larger than the session may keep, and keeps the others", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 10 });
+    try {
+      await writeFile(await small.reserve("a.json"), "[1]");
+      const kept = await small.publish("a.json");
+      await writeFile(await small.reserve("big.json"), "[1234567890]");
+
+      await expect(small.publish("big.json")).rejects.toThrow(/larger than the 10 bytes a session may keep/);
+      expect(small.list()).toEqual([kept]);
+    } finally {
+      await small.dispose();
+    }
+  });
+
+  it("takes the limit from PLEX_EXPORT_MAX_BYTES, 256 KiB by default", () => {
+    const saved = process.env.PLEX_EXPORT_MAX_BYTES;
+    try {
+      delete process.env.PLEX_EXPORT_MAX_BYTES;
+      expect(new ExportStore().maxBytes).toBe(262_144);
+      process.env.PLEX_EXPORT_MAX_BYTES = "1000";
+      expect(new ExportStore().maxBytes).toBe(1000);
+    } finally {
+      if (saved === undefined) delete process.env.PLEX_EXPORT_MAX_BYTES;
+      else process.env.PLEX_EXPORT_MAX_BYTES = saved;
+    }
+  });
+
   it("does not expose a reserved file until it is published", async () => {
     await writeFile(await store.reserve("a.json"), "[]");
 
@@ -495,6 +541,24 @@ describe("export_library over HTTP (export store)", () => {
       expect(store.list()).toHaveLength(2);
     } finally {
       vi.restoreAllMocks();
+    }
+  });
+
+  it("stops an export larger than the session may keep, and leaves the older exports alone", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 1000 });
+    const smallTools = new PlexTools(client as unknown as PlexClient, { exportStore: small });
+    try {
+      const first = (await smallTools.exportLibrary("1", "movie")).resourceLinks![0];
+      const many = Array.from({ length: 50 }, (_, i) => ({ ...movie, ratingKey: String(i) }));
+      client.makeRequest.mockResolvedValue({ MediaContainer: { totalSize: many.length, Metadata: many } });
+
+      await expect(smallTools.exportLibrary("1", "movie")).rejects.toThrow(
+        "Failed to export library: The export is larger than the 1000 bytes a session may keep"
+      );
+      expect(small.list().map((file) => file.uri)).toEqual([first.uri]);
+      expect(await readdir(path.dirname(await small.reserve("x.json")))).toEqual([first.name]);
+    } finally {
+      await small.dispose();
     }
   });
 
