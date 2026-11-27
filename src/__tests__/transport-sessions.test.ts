@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -181,6 +182,28 @@ describe("SessionStore", () => {
     clock += 300_001;
 
     expect(store.sweep()).toEqual(["x"]);
+  });
+
+  // #246 item 7: a request longer than the idle timeout lost its session midway.
+  it("does not expire a session while one of its requests runs", () => {
+    const store = makeStore({ idleTimeoutMs: 300_000 });
+    store.add(fakeTransport("x") as never);
+    const res = new EventEmitter();
+
+    store.trackRequest("x", res as never);
+    clock += 3_000_000;
+    expect(store.sweep()).toEqual([]);
+
+    res.emit("close");
+    clock += 300_000;
+    expect(store.sweep()).toEqual([]);
+    clock += 1;
+    expect(store.sweep()).toEqual(["x"]);
+  });
+
+  it("ignores a request for an unknown session", () => {
+    const store = makeStore();
+    expect(() => store.trackRequest("missing", new EventEmitter() as never)).not.toThrow();
   });
 
   it("sweeps only the stale sessions, leaving fresh ones", () => {
@@ -489,6 +512,75 @@ describe("a session's Server is told when the session ends", () => {
     await initializeRequest();
 
     await vi.waitFor(() => expect(serverClosed).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("a request that outlasts the idle timeout over the real HTTP handler", () => {
+  let httpServer: HttpServer;
+  let baseUrl: string;
+  let clock: number;
+  let store: SessionStore;
+  let entered: () => void;
+  let release: () => void;
+
+  const post = (body: unknown, sessionId?: string) =>
+    fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(async () => {
+    clock = 1_000_000;
+    store = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    const handler = createMcpRequestHandler({
+      getServer: () => {
+        const server = buildTestServer();
+        // tools/list waits until the test lets it finish.
+        server.setRequestHandler(ListToolsRequestSchema, async () => {
+          entered();
+          await new Promise<void>((resolve) => (release = resolve));
+          return { tools: [] };
+        });
+        return server;
+      },
+      serverName: "test-server",
+      store,
+    });
+    httpServer = createServer(handler);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    baseUrl = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    store.closeAll();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  it("keeps its session until it ends, then counts idle time from its end", async () => {
+    const init = await post({
+      jsonrpc: "2.0",
+      method: "initialize",
+      id: 1,
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+    });
+    const sessionId = init.headers.get("mcp-session-id")!;
+    const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+
+    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId);
+    await handlerEntered;
+    clock += 600_000;
+    expect(store.sweep()).toEqual([]);
+
+    release();
+    expect((await slow).status).toBe(200);
+    expect(store.sweep()).toEqual([]);
+    clock += 300_001;
+    expect(store.sweep()).toEqual([sessionId]);
   });
 });
 

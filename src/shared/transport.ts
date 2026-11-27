@@ -88,6 +88,8 @@ interface SessionTransport {
 interface SessionEntry {
   transport: SessionTransport;
   lastActivity: number;
+  /** Requests still running. A session with any is never idle. */
+  activeRequests: number;
 }
 
 export interface SessionStoreOptions {
@@ -136,7 +138,7 @@ export class SessionStore {
     if (!this.sessions.has(id) && this.isFull()) {
       throw new SessionLimitError(this.maxSessions);
     }
-    this.sessions.set(id, { transport, lastActivity: this.now() });
+    this.sessions.set(id, { transport, lastActivity: this.now(), activeRequests: 0 });
   }
 
   /** Look up a session, recording the lookup as activity. */
@@ -145,6 +147,23 @@ export class SessionStore {
     if (!entry) return undefined;
     entry.lastActivity = this.now();
     return entry.transport;
+  }
+
+  /**
+   * Keeps a session from expiring until `res` closes, then records that as activity.
+   * A request can run longer than the idle timeout, a large export for instance, and
+   * the sweeper used to close its session under it. Call it before the first await of
+   * the request, so the response cannot close before the listener is attached.
+   * Unknown sessions are ignored.
+   */
+  trackRequest(id: string, res: Pick<ServerResponse, "once">): void {
+    const entry = this.sessions.get(id);
+    if (!entry) return;
+    entry.activeRequests += 1;
+    res.once("close", () => {
+      entry.activeRequests -= 1;
+      entry.lastActivity = this.now();
+    });
   }
 
   close(id: string): void {
@@ -164,7 +183,7 @@ export class SessionStore {
     const expired: string[] = [];
 
     for (const [id, entry] of this.sessions) {
-      if (entry.lastActivity < deadline) expired.push(id);
+      if (entry.activeRequests === 0 && entry.lastActivity < deadline) expired.push(id);
     }
     for (const id of expired) this.close(id);
 
@@ -266,6 +285,10 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
 
     const rawSessionId = req.headers["mcp-session-id"];
     const sessionId = typeof rawSessionId === "string" ? rawSessionId : undefined;
+
+    // Not GET: its SSE stream stays open as long as the client likes, and would keep an
+    // otherwise idle session alive for good.
+    if (req.method === "POST" && sessionId) store.trackRequest(sessionId, res);
 
     // GET (SSE stream) and DELETE (session teardown) carry no body and always
     // belong to an existing session.
