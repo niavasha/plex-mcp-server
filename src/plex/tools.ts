@@ -319,12 +319,14 @@ export class PlexTools {
       await this.writeToStream(stream, "\n]\n");
       await this.finishStream(stream);
     } catch (error) {
+      // Read before destroy(): destroying with a write still buffered makes the stream
+      // emit an error of its own, which would hide the real cause.
+      const message = this.getErrorMessage(streamError || error);
       stream.destroy();
       await rm(exportPath, { force: true }).catch(() => undefined);
       if (error instanceof McpError) {
         throw error;
       }
-      const message = this.getErrorMessage(streamError || error);
       throw new McpError(ErrorCode.InternalError, `Failed to export library: ${message}`);
     }
 
