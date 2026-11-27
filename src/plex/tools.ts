@@ -1140,7 +1140,8 @@ export class PlexTools {
    * totalSize, on a page identical to the last (Plex ignored the offset), or after
    * PLEX_FILTERED_SCAN_MAX_PAGES. The last two are reported as scanCapped, since the
    * listing may hold more matches. So is a request that fails after the first page: the
-   * rows kept so far are returned. A failing first page throws, as there is nothing to keep.
+   * rows kept so far are returned, with the error as `failure` so a caller with a better
+   * fallback can still take it. A failing first page throws, as there is nothing to keep.
    * `endsAt` marks the first row of a tail that can hold no
    * more matches: the row and everything after it are dropped and the listing counts as
    * finished.
@@ -1152,11 +1153,12 @@ export class PlexTools {
     keep: (row: Record<string, unknown>) => boolean,
     limit: number,
     endsAt?: (row: Record<string, unknown>) => boolean
-  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
+  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean; failure?: unknown }> {
     const kept: Record<string, unknown>[] = [];
     let received = 0;
     let previousKeys: string | undefined;
     let finished = false;
+    let failure: unknown;
 
     for (let page = 0; page < PLEX_FILTERED_SCAN_MAX_PAGES; page++) {
       let data: unknown;
@@ -1174,6 +1176,7 @@ export class PlexTools {
         console.error(
           `collectFiltered: page ${page + 1} of ${endpoint} failed, returning ${kept.length} rows read so far: ${this.getErrorMessage(error)}`
         );
+        failure = error;
         break;
       }
       const container = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: unknown } })
@@ -1202,13 +1205,17 @@ export class PlexTools {
       }
     }
 
-    return { rows: kept.slice(0, limit), scanCapped: !finished };
+    return { rows: kept.slice(0, limit), scanCapped: !finished, ...(failure !== undefined && { failure }) };
   }
 
   /**
    * Session history from Plex's history endpoint, as data. Throws if the
-   * endpoint fails; callers choose their own fallback. Callers that need data
-   * use this and not getWatchHistory, whose text may be TOON instead of JSON.
+   * endpoint fails on its first request; callers choose their own fallback. With a
+   * type filter the history is paged: a later page that fails returns the rows kept
+   * so far, flagged scanCapped. If none were kept it throws as well, unless a user
+   * was asked for, since the callers' library fallback cannot filter by user.
+   * Callers that need data use this and not getWatchHistory, whose text may be TOON
+   * instead of JSON.
    */
   private async fetchWatchHistory(
     limit: number,
@@ -1235,13 +1242,17 @@ export class PlexTools {
     } else {
       // The type filter is ours, not Plex's, so page until there are enough matches.
       const pageLimit = Math.max(1, limit);
-      ({ rows: sessions, scanCapped } = await this.collectFiltered(
+      let failure: unknown;
+      ({ rows: sessions, scanCapped, failure } = await this.collectFiltered(
         endpoint,
         params,
         Math.max(pageLimit, 100),
         (session) => session.type === rowType,
         pageLimit
       ));
+      if (failure !== undefined && sessions.length === 0 && !userId) {
+        throw failure;
+      }
     }
 
     return {
