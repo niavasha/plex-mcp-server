@@ -16,6 +16,7 @@ import {
   createPlexToolRegistry,
   DEFAULT_PLEX_URL,
   dispatchToolCall,
+  protocolVersionOf,
 } from "./plex/index.js";
 import { ExportStore, registerExportResources, startExportSweeper } from "./plex/export-store.js";
 import { startServer, type TransportMode } from "./shared/transport.js";
@@ -70,12 +71,17 @@ class UnifiedMCPServer {
       tools: listedToolSchemas(),
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const a = (args ?? {}) as Record<string, unknown>;
 
       try {
-        return await dispatchToolCall([plexRegistry, traktRegistry, arrRegistry], name, a);
+        return await dispatchToolCall(
+          [plexRegistry, traktRegistry, arrRegistry],
+          name,
+          a,
+          protocolVersionOf(extra.requestInfo)
+        );
       } catch (error) {
         if (error instanceof McpError) throw error;
         const msg = error instanceof Error ? error.message : String(error);

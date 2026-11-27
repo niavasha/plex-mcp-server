@@ -193,7 +193,7 @@ describe("Unified server — dispatch routing", () => {
 
   it("dispatch chain routes correctly: plex → trakt → arr → error", async () => {
     const dispatch = (name: string, args: Record<string, unknown> = {}) =>
-      dispatchToolCall([plexRegistry, traktRegistry, arrRegistry], name, args);
+      dispatchToolCall([plexRegistry, traktRegistry, arrRegistry], name, args, "2025-06-18");
 
     // Plex tool dispatches to plexRegistry
     const plexResult = await dispatch("get_libraries");
@@ -212,7 +212,7 @@ describe("Unified server — dispatch routing", () => {
     );
 
     for (let i = 0; i < registries.length; i++) {
-      expect(await dispatchToolCall(registries, `tool_${i}`)).toEqual({
+      expect(await dispatchToolCall(registries, `tool_${i}`, {}, "2025-06-18")).toEqual({
         content: [{ type: "text", text: `${i}` }, link],
       });
     }

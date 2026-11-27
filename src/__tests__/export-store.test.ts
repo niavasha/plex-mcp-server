@@ -10,7 +10,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { ExportStore, registerExportResources, sweepExpiredExports } from "../plex/export-store.js";
-import { toWireResponse } from "../plex/tool-registry.js";
+import { protocolVersionOf, toWireResponse } from "../plex/tool-registry.js";
 import { PlexTools } from "../plex/tools.js";
 import type { PlexClient } from "../plex/client.js";
 
@@ -717,14 +717,36 @@ describe("export_library over HTTP (export store)", () => {
 });
 
 describe("toWireResponse", () => {
-  it("appends resource links to content and drops the internal field", () => {
-    const link = { type: "resource_link" as const, uri: "plex-export:///a.json", name: "a.json" };
-    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] });
+  const link = { type: "resource_link" as const, uri: "plex-export:///a.json", name: "a.json" };
+
+  it.each(["2025-06-18", "2025-11-25"])("appends resource links to content and drops the internal field on %s", (version) => {
+    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] }, version);
     expect(wire).toEqual({ content: [{ type: "text", text: "x" }, link] });
+  });
+
+  // #246 item 4: a client from before resource_link (SDK 1.12.3, protocol 2025-03-26)
+  // rejected the whole tool result over the one block it did not know.
+  it.each(["2024-11-05", "2025-03-26"])("sends no resource links to a client on %s", (version) => {
+    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] }, version);
+    expect(wire).toEqual({ content: [{ type: "text", text: "x" }] });
   });
 
   it("leaves responses without links unchanged", () => {
     const response = { content: [{ type: "text", text: "x" }] };
-    expect(toWireResponse(response)).toEqual(response);
+    expect(toWireResponse(response, "2025-06-18")).toEqual(response);
+  });
+});
+
+describe("protocolVersionOf", () => {
+  it("reads the version a client sends with each HTTP request", () => {
+    expect(protocolVersionOf({ headers: { "mcp-protocol-version": "2025-06-18" } })).toBe("2025-06-18");
+  });
+
+  it("assumes 2025-03-26 when the header is missing, as the spec says", () => {
+    expect(protocolVersionOf({ headers: {} })).toBe("2025-03-26");
+  });
+
+  it("assumes 2025-03-26 over stdio, which has no headers", () => {
+    expect(protocolVersionOf(undefined)).toBe("2025-03-26");
   });
 });

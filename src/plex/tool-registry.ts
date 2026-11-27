@@ -2,7 +2,12 @@
  * Tool Registry — eliminates switch statements for tool dispatch.
  */
 
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import {
+  DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  ErrorCode,
+  McpError,
+  type RequestInfo,
+} from "@modelcontextprotocol/sdk/types.js";
 import { PlexTools } from "./tools.js";
 import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR } from "./constants.js";
@@ -18,8 +23,27 @@ type ToolRegistryOptions = {
   traktFunctions?: TraktStatsProvider;
 };
 
-/** Moves a response's resource links into `content`, where MCP clients look for them. */
-export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse) {
+/** The first protocol version with resource_link content. */
+export const RESOURCE_LINK_PROTOCOL_VERSION = "2025-06-18";
+
+/**
+ * The protocol version a tool call runs under. Over HTTP, clients on 2025-06-18 and
+ * later send it with every request; a request without it means 2025-03-26, as the spec
+ * says. Over stdio there are no headers, and no tool returns links there.
+ */
+export function protocolVersionOf(requestInfo: Pick<RequestInfo, "headers"> | undefined): string {
+  const header = requestInfo?.headers["mcp-protocol-version"];
+  return typeof header === "string" ? header : DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
+}
+
+/**
+ * Moves a response's resource links into `content`, where MCP clients look for them.
+ * A client on an older protocol rejects the whole result over a resource_link block,
+ * so it gets none; the result's text still names the resource for resources/read.
+ */
+export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse, protocolVersion: string) {
+  // Protocol versions are dates (YYYY-MM-DD), so they compare as strings.
+  if (protocolVersion < RESOURCE_LINK_PROTOCOL_VERSION) return response;
   return { ...response, content: [...response.content, ...resourceLinks] };
 }
 
@@ -64,10 +88,11 @@ export class ToolRegistry {
 export async function dispatchToolCall(
   registries: readonly ToolRegistry[],
   name: string,
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown>,
+  protocolVersion: string
 ) {
   const registry = registries.find((candidate) => candidate.has(name)) ?? registries[registries.length - 1];
-  return toWireResponse(await registry.handle(name, args));
+  return toWireResponse(await registry.handle(name, args), protocolVersion);
 }
 
 /** Pre-registers Plex tools; mutative tools are optional */
