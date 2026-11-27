@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer, type Server as HttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { SessionStore, createMcpRequestHandler } from "../shared/transport.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -16,6 +20,19 @@ const exists = (file: string) =>
     () => false
   );
 
+// Every store in this file gets its own root. The default root is only removed by a
+// process exit handler, which never runs in a test worker, so using it would leave a
+// directory behind on every run.
+let fileRoot: string;
+
+beforeAll(async () => {
+  fileRoot = await mkdtemp(path.join(tmpdir(), "export-store-file-"));
+});
+
+afterAll(async () => {
+  await rm(fileRoot, { recursive: true, force: true });
+});
+
 function createMockClient() {
   return {
     makeRequest: vi.fn(),
@@ -27,7 +44,7 @@ describe("ExportStore", () => {
   let store: ExportStore;
 
   beforeEach(() => {
-    store = new ExportStore();
+    store = new ExportStore({ root: fileRoot });
   });
 
   afterEach(async () => {
@@ -68,13 +85,263 @@ describe("ExportStore", () => {
   });
 });
 
+describe("ExportStore lifetime", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), "export-store-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps each session in its own directory under the root (control)", async () => {
+    const a = new ExportStore({ root });
+    const b = new ExportStore({ root });
+
+    const fileA = await a.reserve("x.json");
+    const fileB = await b.reserve("x.json");
+
+    expect(path.dirname(path.dirname(fileA))).toBe(root);
+    expect(path.dirname(fileA)).not.toBe(path.dirname(fileB));
+    expect(await readdir(root)).toHaveLength(2);
+
+    await a.dispose();
+    expect(await readdir(root)).toEqual([path.basename(path.dirname(fileB))]);
+    await b.dispose();
+  });
+
+  // An export still running when its session closes used to call publish, which made a
+  // new directory that nothing removed.
+  it("refuses to reserve or publish after dispose, and creates nothing", async () => {
+    const store = new ExportStore({ root });
+    await writeFile(await store.reserve("a.json"), "[]");
+    await store.dispose();
+
+    await expect(store.reserve("b.json")).rejects.toThrow(/closed/);
+    await expect(store.publish("a.json")).rejects.toThrow(/closed/);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it("an export whose session closes midway fails and leaves nothing behind", async () => {
+    const store = new ExportStore({ root });
+    const client = createMockClient();
+    client.makeRequest.mockImplementation(async () => {
+      await store.dispose();
+      return { MediaContainer: { totalSize: 1, Metadata: [{ ratingKey: "1", title: "Movie A", type: "movie" }] } };
+    });
+    const tools = new PlexTools(client as unknown as PlexClient, { exportStore: store });
+
+    await expect(tools.exportLibrary("1", "movie")).rejects.toBeInstanceOf(McpError);
+
+    expect(store.list()).toEqual([]);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  /** A Plex request that takes an event-loop turn, as every real one does. */
+  function slowPlex() {
+    const client = createMockClient();
+    client.makeRequest.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { MediaContainer: { totalSize: 1, Metadata: [{ ratingKey: "1", title: "Movie A", type: "movie" }] } };
+    });
+    return client;
+  }
+
+  // The session can close between the path being reserved and the file being opened.
+  // The export must fail, not hang on a destroyed stream, and must not bring the
+  // directory back.
+  it("an export whose session closes right after reserving fails and leaves nothing behind", { timeout: 3000 }, async () => {
+    const store = new ExportStore({ root });
+    const reserve = store.reserve.bind(store);
+    vi.spyOn(store, "reserve").mockImplementationOnce(async (name: string) => {
+      const filePath = await reserve(name);
+      await store.dispose();
+      return filePath;
+    });
+    const tools = new PlexTools(slowPlex() as unknown as PlexClient, { exportStore: store });
+
+    await expect(tools.exportLibrary("1", "movie")).rejects.toBeInstanceOf(McpError);
+
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it("removes the written file when it cannot be published", async () => {
+    const store = new ExportStore({ root });
+    vi.spyOn(store, "publish").mockRejectedValue(new Error("boom"));
+    const tools = new PlexTools(slowPlex() as unknown as PlexClient, { exportStore: store });
+
+    await expect(tools.exportLibrary("1", "movie")).rejects.toThrow(/Failed to export library: boom/);
+
+    const [sessionDir] = await readdir(root);
+    expect(await readdir(path.join(root, sessionDir))).toEqual([]);
+  });
+
+  // Something outside the server (a temp cleaner, an operator) can delete the files of a
+  // session that is still live. The next export must work, not hang or fail for good.
+  it("exports again after the session's directory was removed from outside", { timeout: 3000 }, async () => {
+    const store = new ExportStore({ root });
+    const tools = new PlexTools(slowPlex() as unknown as PlexClient, { exportStore: store });
+    await tools.exportLibrary("1", "movie");
+    const [sessionDir] = await readdir(root);
+    await rm(path.join(root, sessionDir), { recursive: true });
+
+    const response = await tools.exportLibrary("1", "movie");
+
+    const [link] = response.resourceLinks!;
+    expect(JSON.parse(await store.read(link.uri))).toHaveLength(1);
+  });
+
+  it("starts a new session's exports after the root itself was removed", async () => {
+    await rm(root, { recursive: true });
+
+    const filePath = await new ExportStore({ root }).reserve("a.json");
+
+    expect(await exists(path.dirname(filePath))).toBe(true);
+  });
+
+  const permissions = async (dir: string) => (await stat(dir)).mode & 0o777;
+
+  // Exports hold the user's library. mkdtemp makes directories only the owner can read,
+  // and a directory brought back after an outside removal must be no more open than that.
+  it.skipIf(process.platform === "win32")("keeps a replaced session directory, and a recreated root, private", async () => {
+    const store = new ExportStore({ root });
+    const first = path.dirname(await store.reserve("a.json"));
+    expect(await permissions(first)).toBe(0o700);
+
+    await rm(root, { recursive: true });
+    const second = path.dirname(await store.reserve("a.json"));
+
+    expect(await permissions(second)).toBe(0o700);
+    expect(await permissions(root)).toBe(0o700);
+  });
+
+  // A directory at the old path that others can read may not be ours any more.
+  it.skipIf(process.platform === "win32")("moves to a new directory, and forgets the old files, if the old one is no longer private", async () => {
+    const store = new ExportStore({ root });
+    const first = await store.reserve("a.json");
+    await writeFile(first, "[]");
+    await store.publish("a.json");
+    await chmod(path.dirname(first), 0o755);
+
+    const second = await store.reserve("b.json");
+
+    expect(path.dirname(second)).not.toBe(path.dirname(first));
+    expect(await permissions(path.dirname(second))).toBe(0o700);
+    expect(store.list()).toEqual([]);
+    // Still ours, so it is removed, not left for others to read.
+    expect(await exists(path.dirname(first))).toBe(false);
+  });
+
+  it("a reserve still running when the session closes fails and leaves nothing behind", async () => {
+    const store = new ExportStore({ root });
+    await store.reserve("a.json");
+
+    const pending = store.reserve("b.json");
+    const disposing = store.dispose();
+
+    await expect(pending).rejects.toThrow(/closed/);
+    await disposing;
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it("lets the same session try again after its directory could not be created", async () => {
+    // A file where the root should be: creating the session directory fails.
+    await rm(root, { recursive: true });
+    await writeFile(root, "");
+    const store = new ExportStore({ root });
+    await expect(store.reserve("a.json")).rejects.toThrow();
+
+    await rm(root);
+    await mkdir(root);
+
+    expect(await exists(path.dirname(await store.reserve("a.json")))).toBe(true);
+  });
+});
+
+// Shutdown calls process.exit() while dispose() may still be deleting, and a crash in
+// the close path runs no dispose at all. The exit handler is the backstop.
+describe("ExportStore default root", () => {
+  let onceSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    onceSpy = vi.spyOn(process, "once");
+  });
+
+  afterEach(() => {
+    onceSpy.mockRestore();
+  });
+
+  const exitHandlers = () =>
+    onceSpy.mock.calls.filter((call: unknown[]) => call[0] === "exit").map((call: unknown[]) => call[1] as () => void);
+
+  it("registers nothing until an export is reserved (control: stdio never reserves)", async () => {
+    const fresh = await import("../plex/export-store.js");
+    new fresh.ExportStore();
+
+    expect(exitHandlers()).toEqual([]);
+  });
+
+  it("puts every session under one directory and removes it, files included, on exit", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const a = new fresh.ExportStore();
+    const b = new fresh.ExportStore();
+    const fileA = await a.reserve("a.json");
+    const fileB = await b.reserve("b.json");
+    await writeFile(fileA, "[]");
+    const sharedRoot = path.dirname(path.dirname(fileA));
+
+    expect(path.dirname(path.dirname(fileB))).toBe(sharedRoot);
+    expect(exitHandlers()).toHaveLength(1);
+
+    exitHandlers()[0]();
+
+    expect(await exists(sharedRoot)).toBe(false);
+  });
+
+  // The old path is known to anyone who listed the temp directory, so it is not reused.
+  it("makes a new shared directory if the old one was removed from outside", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const first = path.dirname(path.dirname(await new fresh.ExportStore().reserve("a.json")));
+    await rm(first, { recursive: true });
+
+    const second = path.dirname(path.dirname(await new fresh.ExportStore().reserve("a.json")));
+
+    expect(second).not.toBe(first);
+    expect(await exists(first)).toBe(false);
+    for (const handler of exitHandlers()) handler();
+    expect(await exists(second)).toBe(false);
+  });
+
+  // One failure to create the shared directory must not fail every later export.
+  it("tries again after the shared directory could not be created", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const realTmp = process.env.TMPDIR;
+    process.env.TMPDIR = path.join(tmpdir(), `export-store-missing-${process.pid}`);
+    try {
+      await expect(new fresh.ExportStore().reserve("a.json")).rejects.toThrow(/ENOENT/);
+    } finally {
+      if (realTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = realTmp;
+    }
+
+    const filePath = await new fresh.ExportStore().reserve("a.json");
+
+    expect(await exists(path.dirname(filePath))).toBe(true);
+    exitHandlers()[0]();
+    expect(await exists(path.dirname(path.dirname(filePath)))).toBe(false);
+  });
+});
+
 describe("registerExportResources", () => {
   let store: ExportStore;
   let server: Server;
   let client: Client;
 
   beforeEach(async () => {
-    store = new ExportStore();
+    store = new ExportStore({ root: fileRoot });
     server = new Server({ name: "test", version: "0" }, { capabilities: { tools: {} } });
     registerExportResources(server, store);
     client = new Client({ name: "test-client", version: "0" });
@@ -112,6 +379,76 @@ describe("registerExportResources", () => {
   });
 });
 
+// The review of #244 found the directory was removed only when the client sent DELETE.
+describe("a session's exports over the real HTTP handler", () => {
+  let root: string;
+  let httpServer: HttpServer;
+  let baseUrl: string;
+  let clock: number;
+  let sessions: SessionStore;
+  let exportStore: ExportStore;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), "export-store-http-"));
+    clock = 1_000_000;
+    sessions = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    const handler = createMcpRequestHandler({
+      getServer: () => {
+        const server = new Server({ name: "test", version: "0" }, { capabilities: { tools: {} } });
+        exportStore = new ExportStore({ root });
+        registerExportResources(server, exportStore);
+        return server;
+      },
+      serverName: "test",
+      store: sessions,
+    });
+    httpServer = createServer(handler);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    baseUrl = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}`;
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "initialize",
+        id: 1,
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+      }),
+    });
+    expect(response.status).toBe(200);
+    await writeFile(await exportStore.reserve("a.json"), "[]");
+    await exportStore.publish("a.json");
+  });
+
+  afterEach(async () => {
+    sessions.closeAll();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("are kept while the session is live (control)", async () => {
+    clock += 299_000;
+    expect(sessions.sweep()).toEqual([]);
+
+    expect(await readdir(root)).toHaveLength(1);
+    expect(exportStore.list()).toHaveLength(1);
+  });
+
+  it("are removed when the idle sweeper expires the session", async () => {
+    clock += 300_001;
+    expect(sessions.sweep()).toHaveLength(1);
+
+    await vi.waitFor(async () => expect(await readdir(root)).toEqual([]));
+  });
+
+  it("are removed when every session is closed at shutdown", async () => {
+    sessions.closeAll();
+
+    await vi.waitFor(async () => expect(await readdir(root)).toEqual([]));
+  });
+});
+
 describe("export_library over HTTP (export store)", () => {
   const movie = { ratingKey: "1", title: "Movie A", year: 2001, type: "movie", guid: "plex://movie/a" };
   let client: ReturnType<typeof createMockClient>;
@@ -121,7 +458,7 @@ describe("export_library over HTTP (export store)", () => {
   beforeEach(() => {
     client = createMockClient();
     client.makeRequest.mockResolvedValue({ MediaContainer: { totalSize: 1, Metadata: [movie] } });
-    store = new ExportStore();
+    store = new ExportStore({ root: fileRoot });
     tools = new PlexTools(client as unknown as PlexClient, { exportStore: store });
   });
 

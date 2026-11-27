@@ -9,7 +9,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore } from "./export-store.js";
+import { ExportStore, type ExportFile } from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -250,7 +250,11 @@ export class PlexTools {
       exportPath = path.join(baseExportDir, exportName);
     }
 
-    await mkdir(path.dirname(exportPath), { recursive: true });
+    // The store made its own directory. Creating it again here would bring back the
+    // directory of a session that closed in the meantime.
+    if (!exportStore) {
+      await mkdir(path.dirname(exportPath), { recursive: true });
+    }
 
     const safePageSize =
       Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : DEFAULT_LIMITS.exportPageSize;
@@ -328,7 +332,14 @@ export class PlexTools {
     const exportedSize = totalSize || totalExported;
 
     if (exportStore) {
-      const file = await exportStore.publish(exportName);
+      let file: ExportFile;
+      try {
+        file = await exportStore.publish(exportName);
+      } catch (error) {
+        // Most likely the session closed while the export ran.
+        await rm(exportPath, { force: true }).catch(() => undefined);
+        throw new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
+      }
       return {
         ...jsonResponse({
           exported: true,
@@ -1585,10 +1596,22 @@ export class PlexTools {
 
   // ── Private helpers ─────────────────────────────────────────
 
+  /**
+   * A stream that failed to open, or failed earlier, is destroyed: a write to it returns
+   * false and no drain or error follows, so waiting on one would never end.
+   */
+  private assertStreamUsable(stream: ReturnType<typeof createWriteStream>): void {
+    if (stream.destroyed) {
+      throw stream.errored ?? new Error("The export file was closed before the export finished");
+    }
+  }
+
   private async writeToStream(stream: ReturnType<typeof createWriteStream>, chunk: string): Promise<void> {
+    this.assertStreamUsable(stream);
     if (stream.write(chunk)) {
       return;
     }
+    this.assertStreamUsable(stream);
     await new Promise<void>((resolve, reject) => {
       const onDrain = () => {
         stream.off("error", onError);
@@ -1605,6 +1628,7 @@ export class PlexTools {
   }
 
   private async finishStream(stream: ReturnType<typeof createWriteStream>): Promise<void> {
+    this.assertStreamUsable(stream);
     await new Promise<void>((resolve, reject) => {
       stream.once("finish", () => resolve());
       stream.once("error", (error) => reject(error));

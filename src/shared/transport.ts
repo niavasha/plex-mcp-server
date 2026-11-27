@@ -151,10 +151,10 @@ export class SessionStore {
     const entry = this.sessions.get(id);
     if (!entry) return;
 
+    // Deleted first: the transport's own close path fires onclose, which re-enters
+    // here and finds nothing. onclose stays attached, as it is also the only route
+    // to the Server's onclose, where per-session cleanup hangs.
     this.sessions.delete(id);
-    // Detach before closing: the transport's own close path fires onclose,
-    // which would otherwise re-enter here.
-    entry.transport.onclose = undefined;
     void entry.transport.close().catch(() => {});
   }
 
@@ -344,7 +344,8 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
         console.error(`Session ${transport.sessionId} initialized (total: ${store.size})`);
       } catch (error) {
         if (error instanceof SessionLimitError) {
-          transport.onclose = undefined;
+          // onclose stays attached so the Server hears about it; the store never
+          // held this session, so its close(id) is a no-op.
           void transport.close().catch(() => {});
           return;
         }
