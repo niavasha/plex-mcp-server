@@ -39,7 +39,7 @@ describe("PlexClient Discover requests", () => {
     );
   });
 
-  // Only a library export sets a timeout (PLEX_EXPORT_TIMEOUT); other requests wait as long as Plex takes.
+  // Only a library export sets a timeout (PLEX_EXPORT_TIMEOUT_SECONDS); other requests wait as long as Plex takes.
   it("sends local and Discover requests without a timeout unless one is given", async () => {
     const client = new PlexClient({ baseUrl: "http://plex.local:32400", token: "secret-token" });
 

@@ -2,8 +2,20 @@
  * Plex API constants and configuration defaults
  */
 
-/** How long one page request of a library export may take, so a Plex server that stops answering cannot hang the export. */
+import { positiveIntFromEnv } from "../shared/utils.js";
+
+export const PLEX_EXPORT_TIMEOUT_ENV_VAR = "PLEX_EXPORT_TIMEOUT_SECONDS";
+
+/**
+ * How long one page request of a library export may take, in milliseconds, unless
+ * PLEX_EXPORT_TIMEOUT_SECONDS says otherwise. A Plex server that stops answering cannot hang the export.
+ */
 export const PLEX_EXPORT_TIMEOUT = 60000;
+
+/** The export page timeout in milliseconds. Read on every call, like the other settings. */
+export function exportPageTimeoutMs(): number {
+  return positiveIntFromEnv(PLEX_EXPORT_TIMEOUT_ENV_VAR, PLEX_EXPORT_TIMEOUT / 1000) * 1000;
+}
 
 export const PLEX_TYPE_IDS: Record<string, number> = {
   movie: 1,

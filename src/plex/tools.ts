@@ -32,7 +32,7 @@ import {
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
   PLEX_TAGGABLE_TYPE_IDS,
-  PLEX_EXPORT_TIMEOUT,
+  exportPageTimeoutMs,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
@@ -291,6 +291,7 @@ export class PlexTools {
 
     const safePageSize =
       Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : DEFAULT_LIMITS.exportPageSize;
+    const pageTimeoutMs = exportPageTimeoutMs();
     const stream = createWriteStream(exportPath, { encoding: "utf8" });
     let streamError: Error | null = null;
     stream.once("error", (error) => {
@@ -330,7 +331,7 @@ export class PlexTools {
           `/library/sections/${libraryKey}/all`,
           params,
           "GET",
-          PLEX_EXPORT_TIMEOUT
+          pageTimeoutMs
         );
         const container = data as {
           MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };

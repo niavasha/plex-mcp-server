@@ -615,6 +615,22 @@ describe("PlexTools", () => {
       }
     });
 
+    it("exportLibrary takes its page timeout from PLEX_EXPORT_TIMEOUT_SECONDS", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { totalSize: 1, Metadata: [movie] } });
+      const outputPath = `timeout-test-${process.pid}.json`;
+      const exportFile = path.resolve(process.cwd(), "exports", outputPath);
+      const previous = process.env.PLEX_EXPORT_TIMEOUT_SECONDS;
+      process.env.PLEX_EXPORT_TIMEOUT_SECONDS = "300";
+      try {
+        await tools.exportLibrary("2", "movie", outputPath);
+        expect(client.makeRequest).toHaveBeenCalledWith("/library/sections/2/all", expect.any(Object), "GET", 300_000);
+      } finally {
+        if (previous === undefined) delete process.env.PLEX_EXPORT_TIMEOUT_SECONDS;
+        else process.env.PLEX_EXPORT_TIMEOUT_SECONDS = previous;
+        await rm(exportFile, { force: true });
+      }
+    });
+
     it("getWatchHistory adds show info to episodes only", async () => {
       mockMetadata([{ ...episode, viewedAt: 1000 }, { ...movie, viewedAt: 900 }]);
       const result = parseResponse(await tools.getWatchHistory());

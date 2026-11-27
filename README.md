@@ -156,6 +156,8 @@ The optional Trakt, Sonarr and Radarr variables from
 
 > **Only `PLEX_TOKEN` is required.** All other credentials are optional — tools for unconfigured services return a clear error message explaining how to set them up, rather than crashing the server.
 
+> **Library exports** give up when Plex has not answered a page within `PLEX_EXPORT_TIMEOUT_SECONDS` (default 60). Raise it if a large library's pages time out.
+
 > **Sonarr/Radarr API keys** can be found at **Settings > General > API Key** in each app's web UI.
 
 > **Trakt.tv setup** requires a [Trakt OAuth application](https://trakt.tv/oauth/applications). Create one with redirect URI `urn:ietf:wg:oauth:2.0:oob`, then add the Client ID and Secret to your config. Once the server is running, ask your AI assistant to "authenticate with Trakt" — it will guide you through the OAuth flow. See the [Trakt setup guide](docs/trakt-setup-guide.md) for detailed instructions.
