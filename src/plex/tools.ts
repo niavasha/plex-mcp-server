@@ -319,6 +319,8 @@ export class PlexTools {
       await write("[\n");
 
       while (true) {
+        // A cancelled export stops here, between pages, and the signal below aborts the page in flight.
+        throwIfExportCancelled(signal);
         const params: Record<string, string | number> = {
           "X-Plex-Container-Start": offset,
           "X-Plex-Container-Size": safePageSize,
@@ -331,7 +333,7 @@ export class PlexTools {
           `/library/sections/${libraryKey}/all`,
           params,
           "GET",
-          { timeout: pageTimeoutMs }
+          { timeout: pageTimeoutMs, signal }
         );
         const container = data as {
           MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
@@ -374,6 +376,8 @@ export class PlexTools {
       const message = this.getErrorMessage(streamError || error);
       stream.destroy();
       await rm(exportPath, { force: true }).catch(() => undefined);
+      // An aborted page request fails with axios's "canceled", which is not a server fault.
+      throwIfExportCancelled(signal);
       if (error instanceof McpError) {
         throw error;
       }

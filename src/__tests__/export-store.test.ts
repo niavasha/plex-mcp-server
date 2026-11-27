@@ -934,6 +934,41 @@ describe("export_library over HTTP (export store)", () => {
     expect(store.list().map((file) => file.uri)).toEqual([link.uri]);
   });
 
+  // A cancelled export used to fetch every remaining page while the session's next export waited.
+  it("aborts the page in flight when the call is cancelled, and the next export runs at once", async () => {
+    const cancel = new AbortController();
+    client.makeRequest
+      .mockResolvedValueOnce({ MediaContainer: { totalSize: 3, Metadata: [movie] } })
+      .mockImplementationOnce(
+        (_endpoint: string, _params: unknown, _method: string, options: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () => reject(new Error("canceled")));
+          })
+      );
+
+    const cancelled = tools.exportLibrary("1", "movie", undefined, undefined, cancel.signal);
+    await vi.waitFor(() => expect(client.makeRequest).toHaveBeenCalledTimes(2));
+    cancel.abort();
+
+    await expect(cancelled).rejects.toThrow("the request was cancelled");
+    expect(client.makeRequest).toHaveBeenCalledTimes(2);
+    const link = (await tools.exportLibrary("1", "movie")).resourceLinks![0];
+    expect(store.list().map((file) => file.uri)).toEqual([link.uri]);
+  });
+
+  it("fetches no further page once the call is cancelled", async () => {
+    const cancel = new AbortController();
+    client.makeRequest.mockImplementationOnce(async () => {
+      cancel.abort();
+      return { MediaContainer: { totalSize: 3, Metadata: [movie] } };
+    });
+
+    await expect(tools.exportLibrary("1", "movie", undefined, undefined, cancel.signal)).rejects.toThrow(
+      "the request was cancelled"
+    );
+    expect(client.makeRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("does not publish an export whose call was cancelled while it was written", async () => {
     const small = new ExportStore({ root: fileRoot, maxBytes: 200 });
     const smallTools = new PlexTools(client as unknown as PlexClient, { exportStore: small });

@@ -28,6 +28,8 @@ export class PlexPagingError extends Error {
 export interface PlexRequestOptions {
   /** Milliseconds the request may take. Defaults to PLEX_API_TIMEOUT_SECONDS. */
   timeout?: number;
+  /** Aborts the request, for example when the client cancels the tool call. */
+  signal?: AbortSignal;
 }
 
 export class PlexClient implements PlexAPIClient {
@@ -55,6 +57,7 @@ export class PlexClient implements PlexAPIClient {
       },
       params,
       timeout: options.timeout ?? plexApiTimeoutMs(),
+      signal: options.signal,
     };
 
     const response = await axios(url, axiosConfig);
