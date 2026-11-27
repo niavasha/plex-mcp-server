@@ -603,12 +603,12 @@ describe("PlexTools", () => {
         const exported = JSON.parse(await readFile(exportFile, "utf8"));
         expect(exported[0]).toMatchObject(episodeFields);
         expectNoShowFields(exported[1]);
-        // Only an export's page requests give up on a Plex server that stops answering.
+        // An export's page requests use the export's own timeout, not PLEX_API_TIMEOUT_SECONDS.
         expect(client.makeRequest).toHaveBeenCalledWith(
           "/library/sections/2/all",
           expect.any(Object),
           "GET",
-          PLEX_EXPORT_TIMEOUT
+          { timeout: PLEX_EXPORT_TIMEOUT }
         );
       } finally {
         await rm(exportFile, { force: true });
@@ -623,7 +623,7 @@ describe("PlexTools", () => {
       process.env.PLEX_EXPORT_TIMEOUT_SECONDS = "300";
       try {
         await tools.exportLibrary("2", "movie", outputPath);
-        expect(client.makeRequest).toHaveBeenCalledWith("/library/sections/2/all", expect.any(Object), "GET", 300_000);
+        expect(client.makeRequest).toHaveBeenCalledWith("/library/sections/2/all", expect.any(Object), "GET", { timeout: 300_000 });
       } finally {
         if (previous === undefined) delete process.env.PLEX_EXPORT_TIMEOUT_SECONDS;
         else process.env.PLEX_EXPORT_TIMEOUT_SECONDS = previous;

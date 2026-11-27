@@ -4,6 +4,20 @@
 
 import { positiveIntFromEnv } from "../shared/utils.js";
 
+export const PLEX_API_TIMEOUT_ENV_VAR = "PLEX_API_TIMEOUT_SECONDS";
+
+/**
+ * How long a request to Plex or Plex Discover may take, in milliseconds, unless
+ * PLEX_API_TIMEOUT_SECONDS says otherwise. Without one, a Plex server that stops answering
+ * hangs the tool call, and its open HTTP request keeps the session from ever expiring.
+ */
+export const PLEX_API_TIMEOUT = 120000;
+
+/** The Plex request timeout in milliseconds. Read on every call, like the other settings. */
+export function plexApiTimeoutMs(): number {
+  return positiveIntFromEnv(PLEX_API_TIMEOUT_ENV_VAR, PLEX_API_TIMEOUT / 1000) * 1000;
+}
+
 export const PLEX_EXPORT_TIMEOUT_ENV_VAR = "PLEX_EXPORT_TIMEOUT_SECONDS";
 
 /**

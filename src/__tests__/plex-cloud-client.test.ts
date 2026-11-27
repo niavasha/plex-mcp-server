@@ -39,17 +39,25 @@ describe("PlexClient Discover requests", () => {
     );
   });
 
-  // Only a library export sets a timeout (PLEX_EXPORT_TIMEOUT_SECONDS); other requests wait as long as Plex takes.
-  it("sends local and Discover requests without a timeout unless one is given", async () => {
+  // A Plex server that stops answering used to hang the call, and keep its HTTP session from expiring.
+  it("gives local and Discover requests PLEX_API_TIMEOUT_SECONDS, 120 by default, unless a timeout is given", async () => {
     const client = new PlexClient({ baseUrl: "http://plex.local:32400", token: "secret-token" });
+    const previous = process.env.PLEX_API_TIMEOUT_SECONDS;
 
-    await client.makeRequest("/library/sections");
-    await client.makeDiscoverRequest("/library/sections/watchlist/all");
-    await client.makeRequest("/library/sections", {}, "GET", 1234);
+    try {
+      delete process.env.PLEX_API_TIMEOUT_SECONDS;
+      await client.makeRequest("/library/sections");
+      await client.makeDiscoverRequest("/library/sections/watchlist/all");
+      process.env.PLEX_API_TIMEOUT_SECONDS = "30";
+      await client.makeRequest("/library/sections");
+      await client.makeDiscoverRequest("/library/sections/watchlist/all");
+      // The export sets its own.
+      await client.makeRequest("/library/sections", {}, "GET", { timeout: 1234 });
+    } finally {
+      if (previous === undefined) delete process.env.PLEX_API_TIMEOUT_SECONDS;
+      else process.env.PLEX_API_TIMEOUT_SECONDS = previous;
+    }
 
-    expect(request).toHaveBeenCalledTimes(3);
-    expect(request.mock.calls[0][1]).toMatchObject({ timeout: undefined });
-    expect(request.mock.calls[1][1]).not.toHaveProperty("timeout");
-    expect(request.mock.calls[2][1]).toMatchObject({ timeout: 1234 });
+    expect(request.mock.calls.map((call) => call[1]?.timeout)).toEqual([120_000, 120_000, 30_000, 30_000, 1234]);
   });
 });

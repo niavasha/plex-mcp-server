@@ -331,7 +331,7 @@ export class PlexTools {
           `/library/sections/${libraryKey}/all`,
           params,
           "GET",
-          pageTimeoutMs
+          { timeout: pageTimeoutMs }
         );
         const container = data as {
           MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };

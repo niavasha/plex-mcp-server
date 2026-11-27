@@ -156,7 +156,7 @@ The optional Trakt, Sonarr and Radarr variables from
 
 > **Only `PLEX_TOKEN` is required.** All other credentials are optional — tools for unconfigured services return a clear error message explaining how to set them up, rather than crashing the server.
 
-> **Library exports** give up when Plex has not answered a page within `PLEX_EXPORT_TIMEOUT_SECONDS` (default 60). Raise it if a large library's pages time out.
+> **Timeouts:** a request to Plex gives up after `PLEX_API_TIMEOUT_SECONDS` (default 120). Library exports have their own per-page timeout, `PLEX_EXPORT_TIMEOUT_SECONDS` (default 60). Raise it if a large library's pages time out.
 
 > **Sonarr/Radarr API keys** can be found at **Settings > General > API Key** in each app's web UI.
 
