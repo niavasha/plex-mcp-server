@@ -93,7 +93,8 @@ Over HTTP, `export_library` keeps each export in a temporary directory for its
 session and returns a resource link to it. A session's exports can take up to
 `PLEX_EXPORT_MAX_BYTES` together (default 262144, which is 256 KiB). A new
 export removes the session's oldest ones until all of them fit, and an export
-larger than the limit fails. Exports are deleted when their session ends, and
+larger than the limit fails. A client reads an export in a single response,
+so the limit also caps the memory each read takes. Exports are deleted when their session ends, and
 in any case after `PLEX_EXPORT_MAX_AGE_SECONDS` (default 604800, which is 7
 days). That limit also covers exports left behind by a server that was killed:
 the HTTP server removes them when it starts and then checks every hour.
