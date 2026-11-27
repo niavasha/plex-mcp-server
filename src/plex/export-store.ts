@@ -522,29 +522,45 @@ function ignoreGone(error: NodeJS.ErrnoException): undefined {
   throw error;
 }
 
-let sweeper: ReturnType<typeof setInterval> | undefined;
+/** The running sweeper. Each start gets its own, so a sweep still in flight after a stop cannot schedule another. */
+interface Sweeper {
+  timer?: ReturnType<typeof setTimeout>;
+  stopped: boolean;
+}
+
+let sweeper: Sweeper | undefined;
 
 /**
- * Runs sweepExpiredExports() now, then every hour, or every lifetime when that is
- * shorter. Repeated calls do nothing while it runs.
+ * Runs sweepExpiredExports() now, then an hour after each sweep finishes, or a lifetime
+ * after when that is shorter. Waiting for the sweep keeps a slow one from overlapping the
+ * next. Repeated calls do nothing while it runs.
  */
 export function startExportSweeper(): void {
   if (sweeper) return;
+  const state: Sweeper = { stopped: false };
+  sweeper = state;
   const maxAgeMs = exportMaxAgeMs();
+  const intervalMs = Math.min(maxAgeMs, SWEEP_INTERVAL_MS);
   const run = () => {
-    sweepExpiredExports({ maxAgeMs }).catch((error) => {
-      console.error("Failed to remove expired exports:", error);
-    });
+    state.timer = undefined;
+    sweepExpiredExports({ maxAgeMs })
+      .catch((error) => {
+        console.error("Failed to remove expired exports:", error);
+      })
+      .finally(() => {
+        if (state.stopped) return;
+        state.timer = setTimeout(run, intervalMs);
+        // Do not hold the event loop open on this timer.
+        state.timer.unref?.();
+      });
   };
   run();
-  sweeper = setInterval(run, Math.min(maxAgeMs, SWEEP_INTERVAL_MS));
-  // Do not hold the event loop open on this timer.
-  sweeper.unref?.();
 }
 
 export function stopExportSweeper(): void {
   if (!sweeper) return;
-  clearInterval(sweeper);
+  sweeper.stopped = true;
+  clearTimeout(sweeper.timer);
   sweeper = undefined;
 }
 

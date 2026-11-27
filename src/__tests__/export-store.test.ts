@@ -544,6 +544,34 @@ describe("export lifetime", () => {
     }
   });
 
+  it("startExportSweeper schedules the next sweep only once the current one has finished", async () => {
+    const fresh = await import("../plex/export-store.js");
+    await mkdir(path.join(dir, "plex-mcp-exports-busy", "session-a"), { recursive: true });
+    const realTmp = process.env.TMPDIR;
+    process.env.TMPDIR = dir;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    try {
+      fresh.startExportSweeper();
+      // The first sweep is still reading the directory: nothing is scheduled yet.
+      expect(vi.getTimerCount()).toBe(0);
+      // The sweep reads the real filesystem, which can take many turns of the event loop
+      // while other test files run, so wait on the clock, which fake timers leave alone.
+      const deadline = Date.now() + 10_000;
+      while (vi.getTimerCount() === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(vi.getTimerCount()).toBe(1);
+
+      fresh.stopExportSweeper();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      fresh.stopExportSweeper();
+      vi.useRealTimers();
+      if (realTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = realTmp;
+    }
+  });
+
   it("keeps an old, empty session directory of a live store, which reserve() may just have handed out", async () => {
     const root = path.join(dir, "plex-mcp-exports-live");
     const store = new ExportStore({ root });
