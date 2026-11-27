@@ -422,7 +422,7 @@ function parseArgs(): { transport: TransportMode; port: number; mcpPath: string 
 }
 
 /**
- * Start the server on the transport selected by argv.
+ * Start the server on the transport selected by argv, and return that transport.
  *
  * Takes a factory rather than an instance: HTTP mode needs a fresh Server per
  * session, and only the caller knows how to build one. The factory is told
@@ -431,7 +431,7 @@ function parseArgs(): { transport: TransportMode; port: number; mcpPath: string 
 export async function startServer(
   buildServer: (transport: TransportMode) => Server,
   serverName: string
-): Promise<void> {
+): Promise<TransportMode> {
   const { transport, port, mcpPath } = parseArgs();
   const getServer = () => buildServer(transport);
 
@@ -439,7 +439,7 @@ export async function startServer(
     // One process, one client, one session — no session tracking needed.
     await getServer().connect(new StdioServerTransport());
     console.error(`${serverName} running on stdio`);
-    return;
+    return transport;
   }
 
   const store = new SessionStore({
@@ -461,4 +461,5 @@ export async function startServer(
   httpServer.listen(port, () => {
     console.error(`${serverName} running on http://localhost:${port}${mcpPath}`);
   });
+  return transport;
 }

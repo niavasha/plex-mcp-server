@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { ExportStore, registerExportResources } from "../plex/export-store.js";
+import { ExportStore, registerExportResources, sweepExpiredExports } from "../plex/export-store.js";
 import { toWireResponse } from "../plex/tool-registry.js";
 import { PlexTools } from "../plex/tools.js";
 import type { PlexClient } from "../plex/client.js";
@@ -378,6 +378,130 @@ describe("ExportStore default root", () => {
     expect(await exists(path.dirname(filePath))).toBe(true);
     exitHandlers()[0]();
     expect(await exists(path.dirname(path.dirname(filePath)))).toBe(false);
+  });
+});
+
+// #246 item 6: nothing removed the directory of a process that was killed.
+describe("export lifetime", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const NOW = Date.UTC(2030, 0, 15);
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "export-store-sweep-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** Gives a file or directory this modification time, `daysAgo` before NOW. */
+  const age = (target: string, daysAgo: number) => {
+    const when = new Date(NOW - daysAgo * DAY_MS);
+    return utimes(target, when, when);
+  };
+
+  async function writeAged(file: string, daysAgo: number) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "[]");
+    await age(file, daysAgo);
+  }
+
+  it("takes the lifetime from PLEX_EXPORT_MAX_AGE_SECONDS, 7 days by default", () => {
+    const saved = process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+    try {
+      delete process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+      expect(new ExportStore().maxAgeMs).toBe(7 * DAY_MS);
+      process.env.PLEX_EXPORT_MAX_AGE_SECONDS = "60";
+      expect(new ExportStore().maxAgeMs).toBe(60_000);
+    } finally {
+      if (saved === undefined) delete process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+      else process.env.PLEX_EXPORT_MAX_AGE_SECONDS = saved;
+    }
+  });
+
+  it("a store forgets and deletes an export once it is older than the lifetime", async () => {
+    let clock = NOW;
+    const store = new ExportStore({ root: dir, maxAgeMs: 7 * DAY_MS, now: () => clock });
+    try {
+      const filePath = await store.reserve("a.json");
+      await writeAged(filePath, 0);
+      const file = await store.publish("a.json");
+
+      clock += 7 * DAY_MS;
+      expect(store.list()).toEqual([file]);
+
+      clock += 1;
+      expect(store.list()).toEqual([]);
+      await expect(store.read(file.uri)).rejects.toThrow(/Unknown resource/);
+      await vi.waitFor(async () => expect(await exists(filePath)).toBe(false));
+    } finally {
+      await store.dispose();
+    }
+  });
+
+  it("deletes expired files and the directories they leave empty, from every process's directory", async () => {
+    const killed = path.join(dir, "plex-mcp-exports-killed");
+    const live = path.join(dir, "plex-mcp-exports-live");
+    const unrelated = path.join(dir, "something-else");
+    await writeAged(path.join(killed, "session-a", "old.json"), 8);
+    await writeAged(path.join(live, "session-b", "old.json"), 8);
+    await writeAged(path.join(live, "session-b", "new.json"), 1);
+    await writeAged(path.join(unrelated, "old.json"), 30);
+    // Creating entries moved the directories' own times; put them back.
+    for (const target of [path.join(killed, "session-a"), killed, path.join(live, "session-b"), live]) {
+      await age(target, 8);
+    }
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(killed)).toBe(false);
+    expect(await readdir(path.join(live, "session-b"))).toEqual(["new.json"]);
+    expect(await exists(path.join(unrelated, "old.json"))).toBe(true);
+  });
+
+  it("keeps a recent empty directory, which a live session may be about to write to", async () => {
+    const fresh = path.join(dir, "plex-mcp-exports-fresh", "session-c");
+    await mkdir(fresh, { recursive: true });
+    await age(fresh, 1);
+    await age(path.dirname(fresh), 1);
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(fresh)).toBe(true);
+  });
+
+  it("startExportSweeper sweeps the temp directory at once", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const killed = path.join(dir, "plex-mcp-exports-killed");
+    const old = new Date(Date.now() - 8 * DAY_MS);
+    await mkdir(path.join(killed, "session-a"), { recursive: true });
+    await writeFile(path.join(killed, "session-a", "old.json"), "[]");
+    for (const target of [path.join(killed, "session-a", "old.json"), path.join(killed, "session-a"), killed]) {
+      await utimes(target, old, old);
+    }
+    const realTmp = process.env.TMPDIR;
+    process.env.TMPDIR = dir;
+    try {
+      fresh.startExportSweeper();
+      await vi.waitFor(async () => expect(await exists(killed)).toBe(false));
+    } finally {
+      fresh.stopExportSweeper();
+      if (realTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = realTmp;
+    }
+  });
+
+  it("does not follow links out of an export directory", async () => {
+    const outside = path.join(dir, "outside");
+    await writeAged(path.join(outside, "old.json"), 30);
+    const root = path.join(dir, "plex-mcp-exports-linked");
+    await mkdir(root);
+    await symlink(outside, path.join(root, "session-link"));
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(path.join(outside, "old.json"))).toBe(true);
   });
 });
 

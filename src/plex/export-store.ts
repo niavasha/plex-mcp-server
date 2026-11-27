@@ -7,13 +7,16 @@
  * lives as long as the session and is deleted when the session's Server closes:
  * on DELETE, on idle expiry and at shutdown. All session directories sit under
  * one per-process directory that is removed when the process exits, which covers
- * a deletion still in flight at exit. A process that is killed outright leaves
- * its directory behind.
+ * a deletion still in flight at exit.
+ *
+ * No export outlives PLEX_EXPORT_MAX_AGE_SECONDS. The store forgets older ones, and
+ * startExportSweeper() deletes them from disk, including those a killed process left.
  */
 
 import { randomInt } from "node:crypto";
 import { rmSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, rm, stat, readFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, rmdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -31,6 +34,25 @@ export const EXPORT_MIME_TYPE = "application/json";
 export const EXPORT_MAX_BYTES_ENV_VAR = "PLEX_EXPORT_MAX_BYTES";
 /** Space a session's exports may take together unless PLEX_EXPORT_MAX_BYTES says otherwise. */
 export const DEFAULT_EXPORT_MAX_BYTES = 256 * 1024;
+
+export const EXPORT_MAX_AGE_ENV_VAR = "PLEX_EXPORT_MAX_AGE_SECONDS";
+/** How long an export is kept unless PLEX_EXPORT_MAX_AGE_SECONDS says otherwise. */
+export const DEFAULT_EXPORT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+/** The longest the sweeper waits between runs. */
+const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Every process's export directory in the temp directory starts with this. */
+const PROCESS_ROOT_PREFIX = "plex-mcp-exports-";
+
+function exportMaxAgeMs(): number {
+  return positiveIntFromEnv(EXPORT_MAX_AGE_ENV_VAR, DEFAULT_EXPORT_MAX_AGE_SECONDS) * 1000;
+}
+
+/** One rule for the store and the sweeper: an export expires this long after it was written. */
+function isExpired(modifiedMs: number, maxAgeMs: number, now: number): boolean {
+  return now - modifiedMs > maxAgeMs;
+}
 
 const NAME_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const NAME_LENGTH = 32;
@@ -59,6 +81,10 @@ export interface ExportStoreOptions {
   root?: string;
   /** Bytes the session's exports may take together. Defaults to PLEX_EXPORT_MAX_BYTES. */
   maxBytes?: number;
+  /** How long an export is kept. Defaults to PLEX_EXPORT_MAX_AGE_SECONDS. */
+  maxAgeMs?: number;
+  /** Injectable clock, for testing expiry. */
+  now?: () => number;
 }
 
 let processRoot: Promise<string> | undefined;
@@ -68,7 +94,7 @@ let processRoot: Promise<string> | undefined;
  * when the process exits. Exit handlers cannot await, hence the synchronous removal.
  */
 function getProcessRoot(): Promise<string> {
-  processRoot ??= mkdtemp(path.join(tmpdir(), "plex-mcp-exports-")).then(
+  processRoot ??= mkdtemp(path.join(tmpdir(), PROCESS_ROOT_PREFIX)).then(
     (dir) => {
       process.once("exit", () => {
         try {
@@ -105,12 +131,16 @@ async function isPrivateDir(dir: string): Promise<boolean> {
   }
 }
 
+/** True if this user owns the entry. Windows has no owners to check. */
+function isOurs(info: Stats): boolean {
+  return typeof process.geteuid !== "function" || info.uid === process.geteuid();
+}
+
 /** Removes a directory this store stopped using, if it is still a directory of ours. */
 async function removeIfOurs(dir: string): Promise<void> {
   try {
     const info = await lstat(dir);
-    const ours = typeof process.geteuid !== "function" || info.uid === process.geteuid();
-    if (info.isDirectory() && ours) {
+    if (info.isDirectory() && isOurs(info)) {
       await rm(dir, { recursive: true, force: true });
     }
   } catch {
@@ -160,13 +190,18 @@ export function exportTooLargeMessage(maxBytes: number): string {
 export class ExportStore {
   private dirPromise?: Promise<string>;
   private disposed = false;
-  private readonly files = new Map<string, { file: ExportFile; filePath: string }>();
+  private readonly files = new Map<string, { file: ExportFile; filePath: string; modifiedMs: number }>();
+  private readonly now: () => number;
 
   /** Bytes the session's exports may take together. Publishing removes the oldest to stay within it. */
   readonly maxBytes: number;
+  /** How long an export is kept after it was written. */
+  readonly maxAgeMs: number;
 
   constructor(private readonly options: ExportStoreOptions = {}) {
     this.maxBytes = options.maxBytes ?? positiveIntFromEnv(EXPORT_MAX_BYTES_ENV_VAR, DEFAULT_EXPORT_MAX_BYTES);
+    this.maxAgeMs = options.maxAgeMs ?? exportMaxAgeMs();
+    this.now = options.now ?? Date.now;
   }
 
   private assertOpen(): void {
@@ -219,11 +254,12 @@ export class ExportStore {
    */
   async publish(name: string): Promise<ExportFile> {
     const filePath = await this.reserve(name);
+    const info = await stat(filePath);
     const file: ExportFile = {
       uri: `${EXPORT_URI_PREFIX}${name}`,
       name,
       mimeType: EXPORT_MIME_TYPE,
-      size: (await stat(filePath)).size,
+      size: info.size,
     };
     if (file.size > this.maxBytes) {
       throw new Error(exportTooLargeMessage(this.maxBytes));
@@ -233,7 +269,9 @@ export class ExportStore {
     if ((await this.dirPromise?.catch(() => undefined)) !== path.dirname(filePath)) {
       throw new Error("The export directory was replaced while the export ran");
     }
-    this.files.set(file.uri, { file, filePath });
+    // Expiry goes by the file's mtime, as the sweeper's does, so both agree on the moment.
+    this.files.set(file.uri, { file, filePath, modifiedMs: info.mtimeMs });
+    this.dropExpired();
     await this.evictOldest();
     return file;
   }
@@ -258,11 +296,25 @@ export class ExportStore {
     }
   }
 
+  /** Forgets exports past their lifetime and deletes their files. */
+  private dropExpired(): void {
+    const now = this.now();
+    for (const [uri, { filePath, modifiedMs }] of this.files) {
+      if (!isExpired(modifiedMs, this.maxAgeMs, now)) continue;
+      this.files.delete(uri);
+      rm(filePath, { force: true }).catch((error) => {
+        console.error("Failed to remove an expired export:", error);
+      });
+    }
+  }
+
   list(): ExportFile[] {
+    this.dropExpired();
     return [...this.files.values()].map((entry) => entry.file);
   }
 
   async read(uri: string): Promise<string> {
+    this.dropExpired();
     const entry = this.files.get(uri);
     if (!entry) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown resource: ${uri}`);
@@ -280,6 +332,88 @@ export class ExportStore {
       await rm(await dirPromise, { recursive: true, force: true });
     }
   }
+}
+
+export interface ExportSweepOptions {
+  /** Directory holding the process directories. Defaults to the system temp directory. */
+  dir?: string;
+  /** Defaults to PLEX_EXPORT_MAX_AGE_SECONDS. */
+  maxAgeMs?: number;
+  now?: () => number;
+}
+
+/**
+ * Deletes export files past their lifetime from every export directory of this user,
+ * this process's and those left by others, killed ones included, then the directories
+ * that are old and left empty. rmdir removes only an empty directory, so a file another
+ * server is writing at that moment is never lost.
+ */
+export async function sweepExpiredExports(options: ExportSweepOptions = {}): Promise<void> {
+  const dir = options.dir ?? tmpdir();
+  const maxAgeMs = options.maxAgeMs ?? exportMaxAgeMs();
+  const now = (options.now ?? Date.now)();
+  for (const name of await readdir(dir)) {
+    if (name.startsWith(PROCESS_ROOT_PREFIX)) {
+      await sweepDir(path.join(dir, name), maxAgeMs, now);
+    }
+  }
+}
+
+/** Files first, so the directory can then be found empty. Links are never followed. */
+async function sweepDir(dir: string, maxAgeMs: number, now: number): Promise<void> {
+  // Read before anything inside is deleted, which would make the directory look new.
+  const info = await lstat(dir).catch(ignoreGone);
+  if (!info?.isDirectory() || !isOurs(info)) return;
+
+  for (const name of (await readdir(dir).catch(ignoreGone)) ?? []) {
+    const entry = path.join(dir, name);
+    const entryInfo = await lstat(entry).catch(ignoreGone);
+    if (!entryInfo || !isOurs(entryInfo)) continue;
+    if (entryInfo.isDirectory()) {
+      await sweepDir(entry, maxAgeMs, now);
+    } else if (entryInfo.isFile() && isExpired(entryInfo.mtimeMs, maxAgeMs, now)) {
+      await rm(entry, { force: true });
+    }
+  }
+
+  if (isExpired(info.mtimeMs, maxAgeMs, now)) {
+    await rmdir(dir).catch((error: NodeJS.ErrnoException) => {
+      // Still in use, or already removed by someone else.
+      if (error.code !== "ENOTEMPTY" && error.code !== "EEXIST") ignoreGone(error);
+    });
+  }
+}
+
+/** For entries another process may remove at any moment: gone is fine, anything else is not. */
+function ignoreGone(error: NodeJS.ErrnoException): undefined {
+  if (error.code === "ENOENT") return undefined;
+  throw error;
+}
+
+let sweeper: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Runs sweepExpiredExports() now, then every hour, or every lifetime when that is
+ * shorter. Repeated calls do nothing while it runs.
+ */
+export function startExportSweeper(): void {
+  if (sweeper) return;
+  const maxAgeMs = exportMaxAgeMs();
+  const run = () => {
+    sweepExpiredExports({ maxAgeMs }).catch((error) => {
+      console.error("Failed to remove expired exports:", error);
+    });
+  };
+  run();
+  sweeper = setInterval(run, Math.min(maxAgeMs, SWEEP_INTERVAL_MS));
+  // Do not hold the event loop open on this timer.
+  sweeper.unref?.();
+}
+
+export function stopExportSweeper(): void {
+  if (!sweeper) return;
+  clearInterval(sweeper);
+  sweeper = undefined;
 }
 
 /** Serves the store's exports as MCP resources and removes them when the session closes. */

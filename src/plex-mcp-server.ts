@@ -17,7 +17,7 @@ import {
   DEFAULT_PLEX_URL,
   dispatchToolCall,
 } from "./plex/index.js";
-import { ExportStore, registerExportResources } from "./plex/export-store.js";
+import { ExportStore, registerExportResources, startExportSweeper } from "./plex/export-store.js";
 import { startServer, type TransportMode } from "./shared/transport.js";
 import { SERVER_VERSION } from "./shared/version.js";
 import { listedToolSchemas } from "./shared/tool-list.js";
@@ -88,7 +88,13 @@ class UnifiedMCPServer {
 }
 
 export async function main() {
-  await startServer((transport) => UnifiedMCPServer.createServer(transport), "Plex MCP server (unified)");
+  const transport = await startServer(
+    (transport) => UnifiedMCPServer.createServer(transport),
+    "Plex MCP server (unified)"
+  );
+  // Only HTTP keeps exports in the temp directory. The first sweep also clears
+  // what a server that was killed left there.
+  if (transport === "http") startExportSweeper();
 }
 
 main().catch((error) => {
