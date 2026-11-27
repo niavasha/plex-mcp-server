@@ -729,6 +729,70 @@ describe("PlexTools", () => {
         expect(errorSpy).toHaveBeenCalledTimes(2);
         expect(errorSpy).toHaveBeenLastCalledWith(expect.stringContaining("library fallback failed: connection refused"));
       });
+
+      // #247: Plex reports watch state for the token's account and library listings take
+      // no account parameter, so one user's fallback has to read with that user's token.
+      describe("for one user", () => {
+        const viewed = (ratingKey: string, lastViewedAt: number) => ({ ratingKey, title: `Movie ${ratingKey}`, type: "movie", lastViewedAt, viewCount: 1, duration: 1000 });
+
+        /** A server whose history endpoint is down, with one library listing `rows`. */
+        const serverWith = (rows: Record<string, unknown>[]) =>
+          vi.fn(async (path: string) => {
+            if (path === "/status/sessions/history/all") throw new Error("history unavailable");
+            if (path === "/identity") return { MediaContainer: { machineIdentifier: "machine-1" } };
+            if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } };
+            if (path === "/library/sections/1/all") return { MediaContainer: { Metadata: rows, totalSize: rows.length } };
+            throw new Error(`unexpected ${path}`);
+          });
+
+        let userClient: PlexClient;
+
+        beforeEach(() => {
+          (client.makeRequest as ReturnType<typeof vi.fn>).mockImplementation(serverWith([viewed("owner-1", 2000), viewed("owner-2", 1900)]).getMockImplementation()!);
+          userClient = { ...createMockClient(), makeRequest: serverWith([viewed("user-1", 1500)]) } as unknown as PlexClient;
+          Object.assign(client, {
+            getAccountServerToken: vi.fn(async (_machine: string, accountId: string) => (accountId === "42" ? "user-token" : undefined)),
+            withToken: vi.fn(() => userClient),
+          });
+        });
+
+        it("reads the libraries with that user's token", async () => {
+          const result = parseResponse(await tools.getWatchHistory(10, "42"));
+
+          expect(client.getAccountServerToken).toHaveBeenCalledWith("machine-1", "42");
+          expect(client.withToken).toHaveBeenCalledWith("user-token");
+          expect(result.note).toBe("Generated from library metadata (fallback method)");
+          expect(result.watchHistory.map((row: { ratingKey: string }) => row.ratingKey)).toEqual(["user-1"]);
+        });
+
+        it("reads the owner, account 1, with the configured token", async () => {
+          const result = parseResponse(await tools.getWatchHistory(10, "1"));
+
+          expect(client.withToken).not.toHaveBeenCalled();
+          expect(result.watchHistory.map((row: { ratingKey: string }) => row.ratingKey)).toEqual(["owner-1", "owner-2"]);
+        });
+
+        it("returns no rows, with the reason, for an account plex.tv does not list", async () => {
+          const result = parseResponse(await tools.getWatchHistory(10, "77"));
+
+          expect(result.error).toBe("Watch history not available");
+          expect(result.reason).toContain("No access token for account 77");
+          expect(result.watchHistory).toEqual([]);
+          const libraryCalls = (client.makeRequest as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).startsWith("/library/"));
+          expect(libraryCalls).toEqual([]);
+        });
+
+        it("returns no rows, with the reason, when plex.tv refuses the configured token", async () => {
+          // plex.tv answers 401 to any token but the server owner's.
+          (client.getAccountServerToken as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Request failed with status code 401"));
+
+          const result = parseResponse(await tools.getWatchHistory(10, "1"));
+
+          expect(result.error).toBe("Watch history not available");
+          expect(result.reason).toContain("401");
+          expect(result.watchHistory).toEqual([]);
+        });
+      });
     });
   });
 

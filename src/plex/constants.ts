@@ -67,6 +67,9 @@ export const TASTE_TOP_DIRECTORS = 10;
 export const TASTE_TOP_ACTORS = 20;
 export const MIN_WATCHED_FOR_RECOMMENDATIONS = 5;
 
+/** The server owner's account ID on Plex Media Server (accountID in history, id in /accounts). */
+export const PLEX_OWNER_ACCOUNT_ID = "1";
+
 export const DEFAULT_PLEX_URL = "http://localhost:32400";
 export const PLEX_CONTAINER_SIZE = 1000;
 /** Safety stop for paged listings: 500 pages of PLEX_CONTAINER_SIZE is 500k items. */
