@@ -264,7 +264,11 @@ export class PlexTools {
     let exportPath: string;
     if (exportStore) {
       // The client cannot use a server path, so outputPath is not honoured here.
-      exportPath = await exportStore.reserve(exportName);
+      try {
+        exportPath = await exportStore.reserve(exportName);
+      } catch (error) {
+        throw this.exportFailure(error);
+      }
     } else if (outputPath) {
       if (path.isAbsolute(outputPath)) {
         throw new McpError(ErrorCode.InvalidRequest, "Absolute paths are not allowed for outputPath");
@@ -373,15 +377,12 @@ export class PlexTools {
     } catch (error) {
       // Read before destroy(): destroying with a write still buffered makes the stream
       // emit an error of its own, which would hide the real cause.
-      const message = this.getErrorMessage(streamError || error);
+      const failure = error instanceof McpError ? error : this.exportFailure(streamError || error);
       stream.destroy();
       await rm(exportPath, { force: true }).catch(() => undefined);
       // An aborted page request fails with axios's "canceled", which is not a server fault.
       throwIfExportCancelled(signal);
-      if (error instanceof McpError) {
-        throw error;
-      }
-      throw new McpError(ErrorCode.InternalError, `Failed to export library: ${message}`);
+      throw failure;
     }
 
     const exportType = type || "all";
@@ -396,8 +397,7 @@ export class PlexTools {
       } catch (error) {
         // Most likely the session closed while the export ran.
         await rm(exportPath, { force: true }).catch(() => undefined);
-        if (error instanceof McpError) throw error;
-        throw new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
+        throw this.exportFailure(error);
       }
       return {
         ...jsonResponse({
@@ -1707,6 +1707,20 @@ export class PlexTools {
 
   private getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * The error a failed export reports. A filesystem error names a file on the server, which
+   * an HTTP client must not see, so it gets a generic message and the details go to the log.
+   * Over stdio the client runs on the same machine and the path helps, so it is kept.
+   */
+  private exportFailure(error: unknown): McpError {
+    if (error instanceof McpError) return error;
+    if (this.options.exportStore && typeof (error as NodeJS.ErrnoException | undefined)?.path === "string") {
+      console.error("Library export failed:", error);
+      return new McpError(ErrorCode.InternalError, "Failed to export library: the server could not write the export file");
+    }
+    return new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
   }
 
   private parseResponseText(response: MCPResponse): Record<string, unknown> | undefined {

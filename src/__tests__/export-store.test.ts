@@ -969,6 +969,47 @@ describe("export_library over HTTP (export store)", () => {
     expect(client.makeRequest).toHaveBeenCalledTimes(1);
   });
 
+  describe("does not show the client a server path when the filesystem fails", () => {
+    const generic = "Failed to export library: the server could not write the export file";
+    let logged: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it("when no export file can be created", async () => {
+      const notADir = path.join(fileRoot, "not-a-directory");
+      await writeFile(notADir, "");
+      const broken = new ExportStore({ root: notADir });
+      try {
+        const failed = new PlexTools(client as unknown as PlexClient, { exportStore: broken }).exportLibrary("1", "movie");
+        await expect(failed).rejects.toThrow(generic);
+        // The details go to the server's log instead.
+        expect(String(logged.mock.calls[0][1])).toContain(notADir);
+      } finally {
+        await broken.dispose();
+        await rm(notADir, { force: true });
+      }
+    });
+
+    it("when the export file is gone before it is published", async () => {
+      client.makeRequest.mockImplementationOnce(async () => {
+        for (const name of await readdir(fileRoot, { recursive: true })) {
+          if (/[A-Za-z0-9]{32}\.json$/.test(name)) await rm(path.join(fileRoot, name));
+        }
+        return { MediaContainer: { totalSize: 1, Metadata: [movie] } };
+      });
+
+      const failed = tools.exportLibrary("1", "movie");
+      await expect(failed).rejects.toThrow(generic);
+      await expect(failed).rejects.not.toThrow(fileRoot);
+    });
+  });
+
   it("does not publish an export whose call was cancelled while it was written", async () => {
     const small = new ExportStore({ root: fileRoot, maxBytes: 200 });
     const smallTools = new PlexTools(client as unknown as PlexClient, { exportStore: small });
