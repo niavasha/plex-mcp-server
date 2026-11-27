@@ -89,15 +89,33 @@ interface SessionTransport {
 
 /** A POST to a session whose response is still open. */
 export interface OpenPost {
+  res: TrackedResponse;
   /** Its requests that still await a reply. Undefined until its body has been read. */
   requestIds?: Set<RequestId>;
 }
+
+/** The parts of a POST's response the store uses. */
+type TrackedResponse = Pick<ServerResponse, "once" | "headersSent" | "writableEnded" | "writeHead" | "end">;
 
 interface SessionEntry {
   transport: SessionTransport;
   lastActivity: number;
   /** A session is never idle while one of these is still being read or awaits a reply. */
   openPosts: Set<OpenPost>;
+}
+
+/**
+ * Answers the POSTs a closed session's transport left open. In JSON response mode the
+ * SDK's close() drops what it needs to answer a POST still waiting, a cancelled call's for
+ * instance, so the POST would stay open until the client disconnected, and kept server
+ * shutdown waiting on it. Only POSTs already handed to the SDK, whose body was recorded:
+ * the handler answers one still being read itself, and must not find it answered.
+ */
+function answerOrphanedPosts(entry: SessionEntry): void {
+  for (const { res, requestIds } of entry.openPosts) {
+    if (requestIds === undefined || res.headersSent || res.writableEnded) continue;
+    sendRpcError(res, 404, -32001, "Session not found or expired");
+  }
 }
 
 /** The requests a POST body sends, and the earlier requests it cancels. */
@@ -181,10 +199,10 @@ export class SessionStore {
    * request, so the response cannot close before the listener is attached, then pass the
    * returned POST to recordBody() once its body is parsed. Unknown sessions are ignored.
    */
-  trackRequest(id: string, res: Pick<ServerResponse, "once">): OpenPost | undefined {
+  trackRequest(id: string, res: TrackedResponse): OpenPost | undefined {
     const entry = this.sessions.get(id);
     if (!entry) return undefined;
-    const post: OpenPost = {};
+    const post: OpenPost = { res };
     entry.openPosts.add(post);
     res.once("close", () => {
       entry.openPosts.delete(post);
@@ -224,7 +242,10 @@ export class SessionStore {
     // here and finds nothing. onclose stays attached, as it is also the only route
     // to the Server's onclose, where per-session cleanup hangs.
     this.sessions.delete(id);
-    void entry.transport.close().catch(() => {});
+    void entry.transport
+      .close()
+      .catch(() => {})
+      .finally(() => answerOrphanedPosts(entry));
   }
 
   /** Close every session idle beyond the timeout. Returns the closed IDs. */
@@ -286,12 +307,12 @@ function stripTrailingSlashes(path: string): string {
   return path.replace(/\/+$/, "") || "/";
 }
 
-function sendJson(res: ServerResponse, status: number, payload: unknown): void {
+function sendJson(res: Pick<ServerResponse, "writeHead" | "end">, status: number, payload: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload));
 }
 
-function sendRpcError(res: ServerResponse, status: number, code: number, message: string): void {
+function sendRpcError(res: Pick<ServerResponse, "writeHead" | "end">, status: number, code: number, message: string): void {
   sendJson(res, status, { jsonrpc: "2.0", error: { code, message }, id: null });
 }
 

@@ -30,6 +30,16 @@ function fakeTransport(sessionId: string) {
   };
 }
 
+/** A POST's response as the session store sees it: one nobody has answered yet. */
+function fakeResponse() {
+  return Object.assign(new EventEmitter(), {
+    headersSent: false,
+    writableEnded: false,
+    writeHead: vi.fn(),
+    end: vi.fn(),
+  });
+}
+
 /** Turn a string into something shaped like an IncomingMessage. */
 function fakeRequest(body: string): IncomingMessage {
   return Readable.from([Buffer.from(body)]) as unknown as IncomingMessage;
@@ -211,8 +221,8 @@ describe("SessionStore", () => {
     const cancel = (requestId: number) => ({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId } });
 
     /** Sends `body` to session x as one POST, which stays open until the returned emitter closes. */
-    function send(store: SessionStore, body: unknown): EventEmitter {
-      const res = new EventEmitter();
+    function send(store: SessionStore, body: unknown) {
+      const res = fakeResponse();
       store.recordBody("x", store.trackRequest("x", res as never), body);
       return res;
     }
@@ -260,10 +270,43 @@ describe("SessionStore", () => {
     });
   });
 
+  // The SDK's close() never answers a POST still waiting, so it stayed open until the client left.
+  describe("closing a session answers its POSTs the SDK left open", () => {
+    const call = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "slow" } };
+
+    it("with a 404, like any request to a closed session", async () => {
+      const store = makeStore();
+      store.add(fakeTransport("x") as never);
+      const res = fakeResponse();
+      store.recordBody("x", store.trackRequest("x", res as never), call);
+
+      store.close("x");
+
+      await vi.waitFor(() => expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object)));
+      expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({ error: { code: -32001 } });
+    });
+
+    it("but not one still being read, which the handler answers itself, nor one already answered", async () => {
+      const store = makeStore();
+      store.add(fakeTransport("x") as never);
+      const reading = fakeResponse();
+      store.trackRequest("x", reading as never);
+      const answered = Object.assign(fakeResponse(), { headersSent: true });
+      store.recordBody("x", store.trackRequest("x", answered as never), call);
+
+      store.close("x");
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(reading.writeHead).not.toHaveBeenCalled();
+      expect(answered.writeHead).not.toHaveBeenCalled();
+      expect(answered.end).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not count a POST of only notifications as a running request", () => {
     const store = makeStore({ idleTimeoutMs: 300_000 });
     store.add(fakeTransport("x") as never);
-    const res = new EventEmitter();
+    const res = fakeResponse();
     store.recordBody("x", store.trackRequest("x", res as never), { jsonrpc: "2.0", method: "notifications/initialized" });
     clock += 300_001;
     expect(store.sweep()).toEqual(["x"]);
@@ -586,7 +629,7 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
   let entered: () => void;
   let release: () => void;
 
-  const post = (body: unknown, sessionId?: string, signal?: AbortSignal) =>
+  const post = (body: unknown, sessionId?: string) =>
     fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
@@ -595,7 +638,6 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
         ...(sessionId ? { "mcp-session-id": sessionId } : {}),
       },
       body: JSON.stringify(body),
-      signal,
     });
 
   beforeEach(async () => {
@@ -657,8 +699,7 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
     const sessionId = init.headers.get("mcp-session-id")!;
     const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
 
-    const disconnect = new AbortController();
-    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId, disconnect.signal);
+    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId);
     await handlerEntered;
     const cancelled = await post({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 2 } }, sessionId);
     expect(cancelled.status).toBe(202);
@@ -667,8 +708,7 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
     clock += 300_001;
     expect(store.sweep()).toEqual([sessionId]);
     // The SDK never answers a cancelled request, nor ends its POST when the session closes.
-    disconnect.abort();
-    await expect(slow).rejects.toThrow();
+    expect((await slow).status).toBe(404);
   });
 });
 
