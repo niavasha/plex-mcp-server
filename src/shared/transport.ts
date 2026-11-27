@@ -14,6 +14,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CancelledNotificationSchema, isJSONRPCRequest, type RequestId } from "@modelcontextprotocol/sdk/types.js";
 import { positiveIntFromEnv } from "./utils.js";
 
 export type TransportMode = "stdio" | "http";
@@ -86,11 +87,34 @@ interface SessionTransport {
   onclose?: (() => void) | undefined;
 }
 
+/** A POST to a session whose response is still open. */
+export interface OpenPost {
+  /** Its requests that still await a reply. Undefined until its body has been read. */
+  requestIds?: Set<RequestId>;
+}
+
 interface SessionEntry {
   transport: SessionTransport;
   lastActivity: number;
-  /** Requests still running. A session with any is never idle. */
-  activeRequests: number;
+  /** A session is never idle while one of these is still being read or awaits a reply. */
+  openPosts: Set<OpenPost>;
+}
+
+/** The requests a POST body sends, and the earlier requests it cancels. */
+function readMessages(body: unknown): { requestIds: RequestId[]; cancelledIds: RequestId[] } {
+  const requestIds: RequestId[] = [];
+  const cancelledIds: RequestId[] = [];
+  for (const message of Array.isArray(body) ? body : [body]) {
+    if (isJSONRPCRequest(message)) {
+      requestIds.push(message.id);
+      continue;
+    }
+    const cancelled = CancelledNotificationSchema.safeParse(message);
+    if (cancelled.success && cancelled.data.params.requestId !== undefined) {
+      cancelledIds.push(cancelled.data.params.requestId);
+    }
+  }
+  return { requestIds, cancelledIds };
 }
 
 export interface SessionStoreOptions {
@@ -139,7 +163,7 @@ export class SessionStore {
     if (!this.sessions.has(id) && this.isFull()) {
       throw new SessionLimitError(this.maxSessions);
     }
-    this.sessions.set(id, { transport, lastActivity: this.now(), activeRequests: 0 });
+    this.sessions.set(id, { transport, lastActivity: this.now(), openPosts: new Set() });
   }
 
   /** Look up a session, recording the lookup as activity. */
@@ -151,20 +175,45 @@ export class SessionStore {
   }
 
   /**
-   * Keeps a session from expiring until `res` closes, then records that as activity.
-   * A request can run longer than the idle timeout, a large export for instance, and
-   * the sweeper used to close its session under it. Call it before the first await of
-   * the request, so the response cannot close before the listener is attached.
-   * Unknown sessions are ignored.
+   * Keeps a session from expiring while a POST to it runs, and records its end as activity.
+   * A request can run longer than the idle timeout, a large export for instance, and the
+   * sweeper used to close its session under it. Call it before the first await of the
+   * request, so the response cannot close before the listener is attached, then pass the
+   * returned POST to recordBody() once its body is parsed. Unknown sessions are ignored.
    */
-  trackRequest(id: string, res: Pick<ServerResponse, "once">): void {
+  trackRequest(id: string, res: Pick<ServerResponse, "once">): OpenPost | undefined {
     const entry = this.sessions.get(id);
-    if (!entry) return;
-    entry.activeRequests += 1;
+    if (!entry) return undefined;
+    const post: OpenPost = {};
+    entry.openPosts.add(post);
     res.once("close", () => {
-      entry.activeRequests -= 1;
+      entry.openPosts.delete(post);
       entry.lastActivity = this.now();
     });
+    return post;
+  }
+
+  /**
+   * Records what a POST's body holds: the requests that keep its session busy until they
+   * are answered, and the cancellations that stop earlier ones from doing so. The server
+   * never answers a cancelled request, so its POST stays open until the session closes,
+   * and used to keep the session from ever expiring. Unknown sessions are ignored.
+   */
+  recordBody(id: string, post: OpenPost | undefined, body: unknown): void {
+    const entry = this.sessions.get(id);
+    if (!entry) return;
+    const { requestIds, cancelledIds } = readMessages(body);
+    if (post) post.requestIds = new Set(requestIds);
+    for (const cancelled of cancelledIds) {
+      for (const open of entry.openPosts) open.requestIds?.delete(cancelled);
+    }
+  }
+
+  private isBusy(entry: SessionEntry): boolean {
+    for (const post of entry.openPosts) {
+      if (post.requestIds === undefined || post.requestIds.size > 0) return true;
+    }
+    return false;
   }
 
   close(id: string): void {
@@ -184,7 +233,7 @@ export class SessionStore {
     const expired: string[] = [];
 
     for (const [id, entry] of this.sessions) {
-      if (entry.activeRequests === 0 && entry.lastActivity < deadline) expired.push(id);
+      if (!this.isBusy(entry) && entry.lastActivity < deadline) expired.push(id);
     }
     for (const id of expired) this.close(id);
 
@@ -289,7 +338,7 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
 
     // Not GET: its SSE stream stays open as long as the client likes, and would keep an
     // otherwise idle session alive for good.
-    if (req.method === "POST" && sessionId) store.trackRequest(sessionId, res);
+    const post = req.method === "POST" && sessionId ? store.trackRequest(sessionId, res) : undefined;
 
     // GET (SSE stream) and DELETE (session teardown) carry no body and always
     // belong to an existing session.
@@ -333,6 +382,7 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
 
     // ── Existing session ──────────────────────────────────────────────────
     if (sessionId) {
+      store.recordBody(sessionId, post, body);
       const transport = store.get(sessionId);
       if (!transport) {
         sendRpcError(res, 404, -32001, "Session not found or expired");

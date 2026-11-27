@@ -206,6 +206,69 @@ describe("SessionStore", () => {
     expect(() => store.trackRequest("missing", new EventEmitter() as never)).not.toThrow();
   });
 
+  describe("cancelled requests", () => {
+    const call = (id: number) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "slow" } });
+    const cancel = (requestId: number) => ({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId } });
+
+    /** Sends `body` to session x as one POST, which stays open until the returned emitter closes. */
+    function send(store: SessionStore, body: unknown): EventEmitter {
+      const res = new EventEmitter();
+      store.recordBody("x", store.trackRequest("x", res as never), body);
+      return res;
+    }
+
+    // The server never answers a cancelled call, so its POST stayed open and the session never expired.
+    it("expire a session whose only running request was cancelled, though its POST stays open", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      send(store, call(1));
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+
+      send(store, cancel(1)).emit("close");
+      clock += 300_000;
+      expect(store.sweep()).toEqual([]);
+      clock += 1;
+      expect(store.sweep()).toEqual(["x"]);
+    });
+
+    it("keep a batch's session until its other request is answered", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      const batch = send(store, [call(1), call(2)]);
+      send(store, cancel(1)).emit("close");
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+
+      batch.emit("close");
+      clock += 300_001;
+      expect(store.sweep()).toEqual(["x"]);
+    });
+
+    it("do not stop another request from counting as running", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      send(store, call(1));
+      send(store, cancel(2)).emit("close");
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+    });
+
+    it("are ignored for an unknown session", () => {
+      const store = makeStore();
+      expect(() => store.recordBody("missing", undefined, cancel(1))).not.toThrow();
+    });
+  });
+
+  it("does not count a POST of only notifications as a running request", () => {
+    const store = makeStore({ idleTimeoutMs: 300_000 });
+    store.add(fakeTransport("x") as never);
+    const res = new EventEmitter();
+    store.recordBody("x", store.trackRequest("x", res as never), { jsonrpc: "2.0", method: "notifications/initialized" });
+    clock += 300_001;
+    expect(store.sweep()).toEqual(["x"]);
+  });
+
   it("sweeps only the stale sessions, leaving fresh ones", () => {
     const store = makeStore({ idleTimeoutMs: 300_000 });
     store.add(fakeTransport("old") as never);
@@ -523,7 +586,7 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
   let entered: () => void;
   let release: () => void;
 
-  const post = (body: unknown, sessionId?: string) =>
+  const post = (body: unknown, sessionId?: string, signal?: AbortSignal) =>
     fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
@@ -532,6 +595,7 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
         ...(sessionId ? { "mcp-session-id": sessionId } : {}),
       },
       body: JSON.stringify(body),
+      signal,
     });
 
   beforeEach(async () => {
@@ -581,6 +645,30 @@ describe("a request that outlasts the idle timeout over the real HTTP handler", 
     expect(store.sweep()).toEqual([]);
     clock += 300_001;
     expect(store.sweep()).toEqual([sessionId]);
+  });
+
+  it("stops keeping its session once the client cancels it", async () => {
+    const init = await post({
+      jsonrpc: "2.0",
+      method: "initialize",
+      id: 1,
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+    });
+    const sessionId = init.headers.get("mcp-session-id")!;
+    const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+
+    const disconnect = new AbortController();
+    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId, disconnect.signal);
+    await handlerEntered;
+    const cancelled = await post({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 2 } }, sessionId);
+    expect(cancelled.status).toBe(202);
+    release();
+
+    clock += 300_001;
+    expect(store.sweep()).toEqual([sessionId]);
+    // The SDK never answers a cancelled request, nor ends its POST when the session closes.
+    disconnect.abort();
+    await expect(slow).rejects.toThrow();
   });
 });
 
