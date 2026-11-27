@@ -15,7 +15,7 @@ import {
   PlexTools,
   createPlexToolRegistry,
   DEFAULT_PLEX_URL,
-  toWireResponse,
+  dispatchToolCall,
 } from "./plex/index.js";
 import { ExportStore, registerExportResources } from "./plex/export-store.js";
 import { startServer, type TransportMode } from "./shared/transport.js";
@@ -75,9 +75,7 @@ class UnifiedMCPServer {
       const a = (args ?? {}) as Record<string, unknown>;
 
       try {
-        if (plexRegistry.has(name)) return toWireResponse(await plexRegistry.handle(name, a));
-        if (traktRegistry.has(name)) return await traktRegistry.handle(name, a);
-        return await arrRegistry.handle(name, a);
+        return await dispatchToolCall([plexRegistry, traktRegistry, arrRegistry], name, a);
       } catch (error) {
         if (error instanceof McpError) throw error;
         const msg = error instanceof Error ? error.message : String(error);

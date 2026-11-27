@@ -56,6 +56,20 @@ export class ToolRegistry {
   }
 }
 
+/**
+ * Runs a tool call on the first registry that has the tool and returns the result as
+ * it goes to the client. The last registry reports a name that no registry has. Every
+ * result passes through toWireResponse, so no registry can send internal fields.
+ */
+export async function dispatchToolCall(
+  registries: readonly ToolRegistry[],
+  name: string,
+  args: Record<string, unknown> = {}
+) {
+  const registry = registries.find((candidate) => candidate.has(name)) ?? registries[registries.length - 1];
+  return toWireResponse(await registry.handle(name, args));
+}
+
 /** Pre-registers Plex tools; mutative tools are optional */
 export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOptions = {}): ToolRegistry {
   const registry = new ToolRegistry();
