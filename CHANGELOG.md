@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.3](https://github.com/niavasha/plex-mcp-server/compare/v1.9.2...v1.9.3) (2026-11-27)
+
+
+### Fixed
+
+* **plex:** fall back to library metadata when a later history page fails with nothing kept ([c6f3a3a](https://github.com/niavasha/plex-mcp-server/commit/c6f3a3a0c69a8e6e4159489363eeac13a8d1323a))
+* **plex:** keep rows from earlier pages when a later page fails ([7ccde7f](https://github.com/niavasha/plex-mcp-server/commit/7ccde7f24a2057d80c47a067217545b8fe44ecda)), closes [#238](https://github.com/niavasha/plex-mcp-server/issues/238)
+* remove a session's export files on idle expiry and at shutdown ([c1d788c](https://github.com/niavasha/plex-mcp-server/commit/c1d788c94c9d19d6db36c5c5b08fdcbd0811062c))
+* return export_library file as an MCP resource link over HTTP ([2225229](https://github.com/niavasha/plex-mcp-server/commit/2225229252d77c0a47448f96b05017ebe9399681))
+
 ## [1.9.2](https://github.com/niavasha/plex-mcp-server/compare/v1.9.1...v1.9.2) (2026-11-19)
 
 
