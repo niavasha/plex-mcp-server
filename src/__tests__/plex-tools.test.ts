@@ -4,7 +4,7 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexTools } from "../plex/tools.js";
 import { PlexClient } from "../plex/client.js";
-import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
+import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS, PLEX_EXPORT_TIMEOUT } from "../plex/constants.js";
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 /** Create a mock PlexClient without hitting any real server */
@@ -603,6 +603,13 @@ describe("PlexTools", () => {
         const exported = JSON.parse(await readFile(exportFile, "utf8"));
         expect(exported[0]).toMatchObject(episodeFields);
         expectNoShowFields(exported[1]);
+        // Only an export's page requests give up on a Plex server that stops answering.
+        expect(client.makeRequest).toHaveBeenCalledWith(
+          "/library/sections/2/all",
+          expect.any(Object),
+          "GET",
+          PLEX_EXPORT_TIMEOUT
+        );
       } finally {
         await rm(exportFile, { force: true });
       }

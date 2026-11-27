@@ -80,7 +80,8 @@ class UnifiedMCPServer {
           [plexRegistry, traktRegistry, arrRegistry],
           name,
           a,
-          protocolVersionOf(extra.requestInfo)
+          protocolVersionOf(extra.requestInfo),
+          extra.signal
         );
       } catch (error) {
         if (error instanceof McpError) throw error;

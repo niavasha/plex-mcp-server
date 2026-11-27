@@ -13,6 +13,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     mkdtemp: vi.fn(actual.mkdtemp),
     lstat: vi.fn(actual.lstat),
     stat: vi.fn(actual.stat),
+    writeFile: vi.fn(actual.writeFile),
   };
 });
 
@@ -37,6 +38,7 @@ describe.skipIf(process.platform === "win32")("ExportStore when the temp directo
     vi.mocked(fs.mkdtemp).mockImplementation(real.mkdtemp);
     vi.mocked(fs.lstat).mockImplementation(real.lstat);
     vi.mocked(fs.stat).mockImplementation(real.stat);
+    vi.mocked(fs.writeFile).mockImplementation(real.writeFile);
     await real.rm(parent, { recursive: true, force: true });
   });
 
@@ -128,6 +130,23 @@ describe.skipIf(process.platform === "win32")("ExportStore when the temp directo
     await expect(store.publish("a.json")).rejects.toThrow(/replaced while the export ran/);
 
     expect(store.list()).toEqual([]);
+    await store.dispose();
+  });
+
+  // reserve() found the session directory in place, then another server's sweeper removed
+  // it, old and empty, before reserve() created the export's file in it.
+  it("creates the session directory again when it disappears before the export's file is created", async () => {
+    const store = new ExportStore({ root });
+    const first = path.dirname(await store.reserve("a.json"));
+    vi.mocked(fs.writeFile).mockImplementationOnce(async (file, ...rest) => {
+      await real.rm(path.dirname(file as string), { recursive: true });
+      return real.writeFile(file as string, ...(rest as [string]));
+    });
+
+    const second = await store.reserve("b.json");
+
+    expect(path.dirname(second)).not.toBe(first);
+    expect(await real.readdir(path.dirname(second))).toEqual(["b.json"]);
     await store.dispose();
   });
 });

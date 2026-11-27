@@ -12,7 +12,8 @@ import { PlexTools } from "./tools.js";
 import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR } from "./constants.js";
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
+/** `signal` aborts when the client cancels the call or its connection closes. */
+type ToolHandler = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<MCPResponse>;
 type TraktStatsProvider = {
   traktGetUserStats(): Promise<Record<string, unknown>>;
   getWatchedMovieTitles(): Promise<Array<{ title: string; year: number; plays: number }> | null>;
@@ -49,14 +50,14 @@ export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse,
 
 // Helper: wrap a handler to check mutative ops are enabled at runtime
 function guardMutativeOp(handler: ToolHandler): ToolHandler {
-  return async (args: Record<string, unknown>) => {
+  return async (args: Record<string, unknown>, signal?: AbortSignal) => {
     if (!isMutativeOpsEnabled()) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         `Mutative operations are disabled. Enable with ${PLEX_MUTATIVE_OPS_ENV_VAR}=true`
       );
     }
-    return handler(args);
+    return handler(args, signal);
   };
 }
 
@@ -71,12 +72,12 @@ export class ToolRegistry {
     return this.handlers.has(name);
   }
 
-  async handle(name: string, args: Record<string, unknown> = {}): Promise<MCPResponse> {
+  async handle(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<MCPResponse> {
     const handler = this.handlers.get(name);
     if (!handler) {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
-    return handler(args);
+    return handler(args, signal);
   }
 }
 
@@ -89,10 +90,11 @@ export async function dispatchToolCall(
   registries: readonly ToolRegistry[],
   name: string,
   args: Record<string, unknown>,
-  protocolVersion: string
+  protocolVersion: string,
+  signal?: AbortSignal
 ) {
   const registry = registries.find((candidate) => candidate.has(name)) ?? registries[registries.length - 1];
-  return toWireResponse(await registry.handle(name, args), protocolVersion);
+  return toWireResponse(await registry.handle(name, args, signal), protocolVersion);
 }
 
 /** Pre-registers Plex tools; mutative tools are optional */
@@ -111,12 +113,13 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     )
   );
 
-  registry.register("export_library", (args) =>
+  registry.register("export_library", (args, signal) =>
     tools.exportLibrary(
       args.libraryKey as string,
       args.type as string | undefined,
       args.outputPath as string | undefined,
-      (args.pageSize as number) || DEFAULT_LIMITS.exportPageSize
+      (args.pageSize as number) || DEFAULT_LIMITS.exportPageSize,
+      signal
     )
   );
 

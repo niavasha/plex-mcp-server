@@ -2,6 +2,9 @@
  * Plex API constants and configuration defaults
  */
 
+/** How long one page request of a library export may take, so a Plex server that stops answering cannot hang the export. */
+export const PLEX_EXPORT_TIMEOUT = 60000;
+
 export const PLEX_TYPE_IDS: Record<string, number> = {
   movie: 1,
   show: 2,

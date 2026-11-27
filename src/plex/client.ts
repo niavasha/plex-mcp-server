@@ -35,7 +35,13 @@ export class PlexClient implements PlexAPIClient {
     };
   }
 
-  async makeRequest(endpoint: string, params: Record<string, string | number> = {}, method: string = "GET"): Promise<Record<string, unknown>> {
+  /** `timeout` is in milliseconds. Without it the request waits as long as Plex takes. */
+  async makeRequest(
+    endpoint: string,
+    params: Record<string, string | number> = {},
+    method: string = "GET",
+    timeout?: number
+  ): Promise<Record<string, unknown>> {
     const url = `${this.config.baseUrl}${endpoint}`;
     const axiosConfig: AxiosRequestConfig = {
       method,
@@ -44,6 +50,7 @@ export class PlexClient implements PlexAPIClient {
         Accept: "application/json",
       },
       params,
+      timeout,
     };
 
     const response = await axios(url, axiosConfig);

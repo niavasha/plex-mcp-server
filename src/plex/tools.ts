@@ -9,7 +9,13 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore, exportTooLargeMessage, randomExportName, type ExportFile } from "./export-store.js";
+import {
+  ExportStore,
+  exportTooLargeError,
+  libraryExportName,
+  randomExportName,
+  type ExportFile,
+} from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -26,6 +32,7 @@ import {
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
   PLEX_TAGGABLE_TYPE_IDS,
+  PLEX_EXPORT_TIMEOUT,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
@@ -36,6 +43,13 @@ import { formatToolPayload } from "../shared/output-format.js";
  */
 function firstPage(size: number) {
   return { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": size };
+}
+
+/** Stops an export whose call the client cancelled. The client never sees this error. */
+function throwIfExportCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new McpError(ErrorCode.InvalidRequest, "Failed to export library: the request was cancelled");
+  }
 }
 
 /** Helper: wrap a JSON value as an MCP text response */
@@ -221,12 +235,31 @@ export class PlexTools {
     libraryKey: string,
     type?: string,
     outputPath?: string,
-    pageSize: number = DEFAULT_LIMITS.exportPageSize
+    pageSize: number = DEFAULT_LIMITS.exportPageSize,
+    signal?: AbortSignal
   ): Promise<MCPResponse> {
     validatePlexId(libraryKey, "libraryKey");
-
     const exportStore = this.options.exportStore;
-    const exportName = randomExportName();
+    // Over HTTP a session runs one export at a time, so parallel exports cannot each
+    // take up to the session's whole limit on disk. A call the client gave up on while
+    // it waited does not run: publishing it would evict exports the client still uses.
+    const run = async () => {
+      throwIfExportCancelled(signal);
+      return this.writeLibraryExport(libraryKey, type, outputPath, pageSize, signal);
+    };
+    return exportStore ? exportStore.runExclusive(run) : run();
+  }
+
+  private async writeLibraryExport(
+    libraryKey: string,
+    type: string | undefined,
+    outputPath: string | undefined,
+    pageSize: number,
+    signal: AbortSignal | undefined
+  ): Promise<MCPResponse> {
+    const exportStore = this.options.exportStore;
+    // Over HTTP the name becomes the resource URI, which must not be guessable.
+    const exportName = exportStore ? randomExportName() : libraryExportName(libraryKey);
     const baseExportDir = path.resolve(process.cwd(), "exports");
     let exportPath: string;
     if (exportStore) {
@@ -271,7 +304,7 @@ export class PlexTools {
     const write = (chunk: string) => {
       bytesWritten += Buffer.byteLength(chunk, "utf8");
       if (bytesWritten > maxBytes) {
-        throw new Error(exportTooLargeMessage(maxBytes));
+        throw exportTooLargeError(maxBytes);
       }
       return this.writeToStream(stream, chunk);
     };
@@ -293,7 +326,12 @@ export class PlexTools {
           params.type = this.client.getPlexTypeId(type);
         }
 
-        const data = await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params);
+        const data = await this.client.makeRequest(
+          `/library/sections/${libraryKey}/all`,
+          params,
+          "GET",
+          PLEX_EXPORT_TIMEOUT
+        );
         const container = data as {
           MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
         };
@@ -347,10 +385,13 @@ export class PlexTools {
     if (exportStore) {
       let file: ExportFile;
       try {
+        // Publishing evicts older exports, which a cancelled call must not do.
+        throwIfExportCancelled(signal);
         file = await exportStore.publish(exportName);
       } catch (error) {
         // Most likely the session closed while the export ran.
         await rm(exportPath, { force: true }).catch(() => undefined);
+        if (error instanceof McpError) throw error;
         throw new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
       }
       return {
