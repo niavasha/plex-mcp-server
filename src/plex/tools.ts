@@ -1310,7 +1310,7 @@ export class PlexTools {
       console.error(`get_watch_history: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
       // Fallback: build pseudo-history from library metadata, read as the requested account
       try {
-        const tools = userId === undefined ? this : await this.toolsForAccount(userId);
+        const tools = userId === undefined ? this : new PlexTools(await this.clientForAccount(userId), this.options);
         return await tools.getWatchHistoryFromLibraries(limit, mediaType);
       } catch (fallbackError) {
         console.error(`get_watch_history: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
@@ -2014,19 +2014,28 @@ export class PlexTools {
   }
 
   /**
-   * Tools that read this server as one account. Plex reports watch state (viewCount,
+   * A client that reads this server as one account. Plex reports watch state (viewCount,
    * lastViewedAt) for the account whose token makes the request, and library listings take
    * no account parameter, so another account's views need that account's own token. plex.tv
    * lists it only to the server owner, so a successful lookup also shows the configured
    * token is the owner's, which the server knows as PLEX_OWNER_ACCOUNT_ID.
    */
-  private async toolsForAccount(accountId: string): Promise<PlexTools> {
-    const token = await this.client.getAccountServerToken(await this.getMachineIdentifier(), accountId);
+  private async clientForAccount(accountId: string): Promise<PlexClient> {
+    const machineIdentifier = await this.getMachineIdentifier();
+    let token: string | undefined;
+    try {
+      token = await this.client.getAccountServerToken(machineIdentifier, accountId);
+    } catch (error) {
+      throw new Error(
+        `Cannot read account ${accountId}'s watch state: plex.tv lists this server's users only to the server owner's token, ` +
+          `so a non-owner PLEX_TOKEN cannot specify userId; omit it to use PLEX_TOKEN's own account: ${this.getErrorMessage(error)}`
+      );
+    }
     if (token) {
-      return new PlexTools(this.client.withToken(token), this.options);
+      return this.client.withToken(token);
     }
     if (accountId === PLEX_OWNER_ACCOUNT_ID) {
-      return this;
+      return this.client;
     }
     throw new Error(`No access token for account ${accountId}: plex.tv does not list it as a user of this server`);
   }
@@ -2262,7 +2271,9 @@ export class PlexTools {
     qualityBias: number = 1.0,
     traktWatchedTitles?: Set<string>,
   ): Promise<MCPResponse> {
-    const allMovies = await this.client.getLibraryMoviesWithMeta(libraryKey, userId);
+    // Plex reports watch state for the token's account, so read the library as the user.
+    const client = userId === undefined ? this.client : await this.clientForAccount(userId);
+    const allMovies = await client.getLibraryMoviesWithMeta(libraryKey);
 
     // Merge Plex and Trakt watched data — Trakt catches off-Plex watches
     const isWatched = (m: LibraryMovieRecord): boolean => {

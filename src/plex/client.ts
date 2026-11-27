@@ -131,7 +131,8 @@ export class PlexClient implements PlexAPIClient {
       }));
   }
 
-  async getLibraryMoviesWithMeta(libraryKey: string, userId?: string): Promise<LibraryMovieRecord[]> {
+  /** Every movie in the library, with the watch state of the account this client's token belongs to. */
+  async getLibraryMoviesWithMeta(libraryKey: string): Promise<LibraryMovieRecord[]> {
     const allMovies: LibraryMovieRecord[] = [];
     let offset = 0;
     const pageSize = PLEX_CONTAINER_SIZE;
@@ -142,7 +143,6 @@ export class PlexClient implements PlexAPIClient {
         "X-Plex-Container-Start": offset,
         "X-Plex-Container-Size": pageSize,
       };
-      if (userId) params.accountID = userId;
 
       const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, params);
       const container = data as { MediaContainer?: { totalSize?: number; Metadata?: Record<string, unknown>[] } };

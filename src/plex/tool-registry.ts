@@ -5,7 +5,7 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { PlexTools } from "./tools.js";
 import { MCPResponse } from "./types.js";
-import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR } from "./constants.js";
+import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR, PLEX_OWNER_ACCOUNT_ID } from "./constants.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
 type TraktStatsProvider = {
@@ -166,8 +166,12 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
   registry.register("get_recommendations", async (args) => {
     let qualityBias = 1.0;
     let traktWatchedTitles: Set<string> | undefined;
+    const userId = args.userId as string | undefined;
+    // The configured Trakt account is taken to be the server owner's, so another user's
+    // recommendations must not inherit its ratings or watched movies.
+    const forOwner = userId === undefined || userId === PLEX_OWNER_ACCOUNT_ID;
 
-    if (options.traktFunctions && process.env.TRAKT_ACCESS_TOKEN) {
+    if (forOwner && options.traktFunctions && process.env.TRAKT_ACCESS_TOKEN) {
       try {
         // Fetch Trakt rating distribution for quality bias
         const statsResult = await options.traktFunctions.traktGetUserStats();
@@ -201,7 +205,7 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     return tools.getRecommendations(
       args.libraryKey as string,
       (args.limit as number) || DEFAULT_LIMITS.recommendations,
-      args.userId as string | undefined,
+      userId,
       qualityBias,
       traktWatchedTitles
     );

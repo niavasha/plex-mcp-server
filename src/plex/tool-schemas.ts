@@ -198,7 +198,12 @@ const GET_WATCH_HISTORY_SCHEMA = {
     type: "object" as const,
     properties: {
       limit: { type: "number", description: "Number of sessions to return (default: 500)", default: 500 },
-      userId: { type: "string", description: "Filter by specific user ID (optional)" },
+      userId: {
+        type: "string",
+        description:
+          "Filter by specific user ID (optional). If the history endpoint fails, the library fallback " +
+          "honours it only when PLEX_TOKEN belongs to the server owner; with a non-owner token, omit it.",
+      },
       mediaType: {
         type: "string",
         description: "Filter by media type",
@@ -552,8 +557,8 @@ const GET_RECOMMENDATIONS_SCHEMA = {
       userId: {
         type: "string",
         description:
-          "Plex account ID for per-user recommendations. " +
-          "Omit to use the server owner. Use get_user_stats to find user IDs.",
+          "Plex account ID for per-user recommendations. Use get_user_stats to find user IDs. " +
+          "Only the server owner's PLEX_TOKEN can specify it; omit it to use PLEX_TOKEN's own account.",
       },
     },
     required: ["libraryKey"],
