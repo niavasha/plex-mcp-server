@@ -9,7 +9,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore, type ExportFile } from "./export-store.js";
+import { ExportStore, randomExportName, type ExportFile } from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -226,7 +226,7 @@ export class PlexTools {
     validatePlexId(libraryKey, "libraryKey");
 
     const exportStore = this.options.exportStore;
-    const exportName = `library_${libraryKey}_${Date.now()}.json`;
+    const exportName = randomExportName();
     const baseExportDir = path.resolve(process.cwd(), "exports");
     let exportPath: string;
     if (exportStore) {

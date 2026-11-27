@@ -11,6 +11,7 @@
  * its directory behind.
  */
 
+import { randomInt } from "node:crypto";
 import { rmSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, rm, stat, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,6 +26,21 @@ import {
 
 export const EXPORT_URI_PREFIX = "plex-export:///";
 export const EXPORT_MIME_TYPE = "application/json";
+
+const NAME_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const NAME_LENGTH = 32;
+
+/**
+ * A new export file name: 32 random letters and digits, then ".json". Concurrent
+ * exports of one library used to get the same name from the same millisecond.
+ */
+export function randomExportName(): string {
+  let name = "";
+  for (let i = 0; i < NAME_LENGTH; i++) {
+    name += NAME_ALPHABET[randomInt(NAME_ALPHABET.length)];
+  }
+  return `${name}.json`;
+}
 
 export interface ExportFile {
   uri: string;

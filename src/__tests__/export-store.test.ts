@@ -480,6 +480,24 @@ describe("export_library over HTTP (export store)", () => {
     expect(JSON.parse(await store.read(link.uri))).toEqual([expect.objectContaining({ ratingKey: "1", title: "Movie A" })]);
   });
 
+  // #246 item 2: names came from Date.now(), so two exports in one millisecond shared a file.
+  it("gives concurrent exports of one library their own random file names", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const responses = await Promise.all([tools.exportLibrary("1", "movie"), tools.exportLibrary("1", "movie")]);
+      const links = responses.map((response) => response.resourceLinks![0]);
+
+      for (const link of links) {
+        expect(link.name).toMatch(/^[A-Za-z0-9]{32}\.json$/);
+        expect(JSON.parse(await store.read(link.uri))).toHaveLength(1);
+      }
+      expect(links[0].uri).not.toBe(links[1].uri);
+      expect(store.list()).toHaveLength(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("does not write under ./exports, even when outputPath is given", async () => {
     await tools.exportLibrary("1", "movie", "http-mode-test.json");
     expect(await exists(path.resolve(process.cwd(), "exports", "http-mode-test.json"))).toBe(false);
