@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PlexTools } from "../plex/tools.js";
 import { PlexClient } from "../plex/client.js";
 import { PLEX_FILTERED_SCAN_MAX_PAGES } from "../plex/constants.js";
@@ -151,5 +151,156 @@ describe("fully watched shows", () => {
 
     expect(result.fullyWatched).toHaveLength(1);
     expect(makeRequest.mock.calls[0][1]).toMatchObject({ "X-Plex-Container-Size": 2 });
+  });
+});
+
+// Follow-up to the review of #239: a later page that fails now returns the rows kept so far
+// instead of throwing. With no rows kept there is nothing worth returning, and the throw was
+// what sent the history tools to their library fallback.
+describe("a later page of the primary listing fails", () => {
+  const RECENT_FALLBACK_NOTE = "Retrieved from library metadata";
+  const HISTORY_FALLBACK_NOTE = "Generated from library metadata (fallback method)";
+  const FULLY_FALLBACK_NOTE = "Retrieved using fallback method - showing items with any view count";
+
+  const viewedMovie = (n: number): Row => ({ ratingKey: `lib-m${n}`, title: `Library movie ${n}`, type: "movie", lastViewedAt: 5_000 - n, viewCount: 1, duration: 1000 });
+
+  let makeRequest: ReturnType<typeof vi.fn>;
+  let tools: PlexTools;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    ({ makeRequest, tools } = setup());
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  /** History answers its first page and then goes down. One healthy library of viewed movies. */
+  function historyDownAfterFirstPage(history: Row[]) {
+    const paged = pagedServer(history);
+    const library = [viewedMovie(1), viewedMovie(2)];
+    return async (path: string, params: Params = {}) => {
+      if (path === HISTORY) {
+        if (Number(params["X-Plex-Container-Start"] ?? 0) > 0) throw new Error("timeout");
+        return paged(path, params);
+      }
+      if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } };
+      if (path === "/library/sections/1/all") return { MediaContainer: { Metadata: library, totalSize: library.length } };
+      throw new Error("unavailable");
+    };
+  }
+
+  const historyRequests = () => makeRequest.mock.calls.filter((call) => call[0] === HISTORY).length;
+  const libraryRequests = () => makeRequest.mock.calls.filter((call) => String(call[0]).startsWith("/library/")).length;
+
+  // A first page of 100 rows out of 150, so a second request is always needed.
+  const noMoviesOnFirstPage = () => Array.from({ length: 150 }, (_, i) => episode(i));
+  const threeMoviesOnFirstPage = () => [movie(0), movie(1), movie(2), ...Array.from({ length: 147 }, (_, i) => episode(i + 3))];
+
+  it("getRecentlyWatched falls back to library metadata when no rows were kept", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(noMoviesOnFirstPage()));
+
+    const result = parse(await tools.getRecentlyWatched(10, "movie"));
+
+    expect(result.note).toBe(RECENT_FALLBACK_NOTE);
+    expect(result.recentlyWatched.map((row: Row) => row.ratingKey)).toEqual(["lib-m1", "lib-m2"]);
+  });
+
+  it("getWatchHistory falls back to library metadata when no rows were kept", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(noMoviesOnFirstPage()));
+
+    const result = parse(await tools.getWatchHistory(10, undefined, "movie"));
+
+    expect(result.note).toBe(HISTORY_FALLBACK_NOTE);
+    expect(result.watchHistory.map((row: Row) => row.ratingKey)).toEqual(["lib-m1", "lib-m2"]);
+  });
+
+  // Control. The library fallback cannot filter by user, so one user's empty history must
+  // not be replaced by rows from the whole server.
+  it("getWatchHistory for one user stays empty and flagged instead of falling back", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(noMoviesOnFirstPage()));
+
+    const result = parse(await tools.getWatchHistory(10, "42", "movie"));
+
+    expect(result.watchHistory).toEqual([]);
+    expect(result.scanCapped).toBe(true);
+    expect(libraryRequests()).toBe(0);
+  });
+
+  // Control: passes with and without the fallback fix.
+  it("getRecentlyWatched keeps the rows already read, flags them, and does not retry or fall back", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(threeMoviesOnFirstPage()));
+
+    const result = parse(await tools.getRecentlyWatched(10, "movie"));
+
+    expect(result.recentlyWatched.map((row: Row) => row.ratingKey)).toEqual(["m0", "m1", "m2"]);
+    expect(result.scanCapped).toBe(true);
+    expect(historyRequests()).toBe(2);
+    expect(libraryRequests()).toBe(0);
+  });
+
+  // Control: passes with and without the fallback fix.
+  it("getWatchHistory keeps the rows already read and flags them", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(threeMoviesOnFirstPage()));
+
+    const result = parse(await tools.getWatchHistory(10, undefined, "movie"));
+
+    expect(result.watchHistory.map((row: Row) => row.ratingKey)).toEqual(["m0", "m1", "m2"]);
+    expect(result.scanCapped).toBe(true);
+    expect(historyRequests()).toBe(2);
+  });
+
+  // Control: pins where the #239 log line goes.
+  it("reports the failed page on stderr and writes nothing to stdout", async () => {
+    makeRequest.mockImplementation(historyDownAfterFirstPage(threeMoviesOnFirstPage()));
+
+    await tools.getRecentlyWatched(10, "movie");
+
+    expect(errorSpy.mock.calls.map((call: unknown[]) => String(call[0]))).toContainEqual(
+      expect.stringMatching(/page 2 of \/status\/sessions\/history\/all failed.*timeout/)
+    );
+    // stdout is the MCP channel on the stdio transport.
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  /** The fully watched query (it sends `unwatched`) goes down after its first page. */
+  function fullyWatchedDownAfterFirstPage(primary: Row[], fallback: Row[]) {
+    const paged = pagedServer(primary);
+    return async (path: string, params: Params = {}) => {
+      if (path !== "/library/sections/2/all") throw new Error("unavailable");
+      if (params.unwatched === undefined) return { MediaContainer: { Metadata: fallback, totalSize: fallback.length } };
+      if (Number(params["X-Plex-Container-Start"] ?? 0) > 0) throw new Error("timeout");
+      return paged(path, params);
+    };
+  }
+
+  // Control. The fallback keeps anything with a view count, so it would return the partly
+  // watched shows this query has just rejected. Empty and flagged is the better answer.
+  it("getFullyWatched stays empty and flagged when no rows were kept", async () => {
+    const partlyWatched = [show(1, 4), show(2, 4), show(3, 4), show(4, 4), show(5, 10)];
+    makeRequest.mockImplementation(fullyWatchedDownAfterFirstPage(partlyWatched, partlyWatched));
+
+    const result = parse(await tools.getFullyWatched("2", "show", 2));
+
+    expect(result.fullyWatched).toEqual([]);
+    expect(result.scanCapped).toBe(true);
+    expect(result.note).not.toBe(FULLY_FALLBACK_NOTE);
+  });
+
+  // Control: passes with and without the fallback fix.
+  it("getFullyWatched keeps the rows already read and flags them", async () => {
+    const oneFullyWatched = [show(1, 10), show(2, 4), show(3, 4), show(4, 4), show(5, 10)];
+    makeRequest.mockImplementation(fullyWatchedDownAfterFirstPage(oneFullyWatched, [show(9, 10)]));
+
+    const result = parse(await tools.getFullyWatched("2", "show", 2));
+
+    expect(result.fullyWatched.map((row: Row) => row.ratingKey)).toEqual(["s1"]);
+    expect(result.scanCapped).toBe(true);
+    expect(result.note).not.toBe(FULLY_FALLBACK_NOTE);
   });
 });

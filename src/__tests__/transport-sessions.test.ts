@@ -194,9 +194,14 @@ describe("SessionStore", () => {
     expect(store.has("new")).toBe(true);
   });
 
-  it("closing a session detaches onclose so close does not recurse", () => {
+  // The transport's onclose is the only route to the Server's own onclose, where
+  // per-session cleanup hangs. It used to be detached here, so a session closed by
+  // the sweeper or at shutdown never ran that cleanup.
+  it("closing a session runs the transport's onclose once, without recursing", () => {
     const store = makeStore();
     const t = fakeTransport("a");
+    // Like the real transport, close() fires onclose.
+    t.close.mockImplementation(async () => t.onclose?.());
     let oncloseCalls = 0;
     store.add(t as never);
     t.onclose = () => {
@@ -206,7 +211,8 @@ describe("SessionStore", () => {
 
     store.close("a");
 
-    expect(oncloseCalls).toBe(0);
+    expect(oncloseCalls).toBe(1);
+    expect(t.close).toHaveBeenCalledTimes(1);
     expect(store.size).toBe(0);
   });
 
@@ -390,6 +396,99 @@ describe("MCP HTTP handler", () => {
     expect(res.status).toBe(503);
 
     for (const c of clients) await c.close();
+  });
+});
+
+// Per-session cleanup (the export store's temp directory, for one) hangs off the
+// Server's onclose. Every way a session ends has to reach it, not only DELETE.
+describe("a session's Server is told when the session ends", () => {
+  let httpServer: HttpServer;
+  let baseUrl: string;
+  let clock: number;
+  let serverClosed: ReturnType<typeof vi.fn<() => void>>;
+
+  const initializeRequest = () =>
+    fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "initialize",
+        id: 1,
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+      }),
+    });
+
+  async function listen(store: SessionStore) {
+    const handler = createMcpRequestHandler({
+      getServer: () => {
+        const server = buildTestServer();
+        server.onclose = () => serverClosed();
+        return server;
+      },
+      serverName: "test-server",
+      store,
+    });
+    httpServer = createServer(handler);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    baseUrl = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}`;
+  }
+
+  beforeEach(() => {
+    clock = 1_000_000;
+    serverClosed = vi.fn<() => void>();
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  it("not while the session is live (control)", async () => {
+    const store = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    await listen(store);
+    expect((await initializeRequest()).status).toBe(200);
+
+    clock += 299_000;
+    expect(store.sweep()).toEqual([]);
+
+    expect(serverClosed).not.toHaveBeenCalled();
+    store.closeAll();
+  });
+
+  it("when the idle sweeper expires it", async () => {
+    const store = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    await listen(store);
+    expect((await initializeRequest()).status).toBe(200);
+
+    clock += 300_001;
+    expect(store.sweep()).toHaveLength(1);
+
+    await vi.waitFor(() => expect(serverClosed).toHaveBeenCalledTimes(1));
+    expect(store.size).toBe(0);
+  });
+
+  it("when every session is closed at shutdown", async () => {
+    const store = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    await listen(store);
+    expect((await initializeRequest()).status).toBe(200);
+
+    store.closeAll();
+
+    await vi.waitFor(() => expect(serverClosed).toHaveBeenCalledTimes(1));
+  });
+
+  it("when the session cannot be registered because the store filled up meanwhile", async () => {
+    // isFull() is checked before the Server is built; add() can still lose the race.
+    class RacingStore extends SessionStore {
+      override add(): void {
+        throw new SessionLimitError(0);
+      }
+    }
+    await listen(new RacingStore());
+
+    await initializeRequest();
+
+    await vi.waitFor(() => expect(serverClosed).toHaveBeenCalledTimes(1));
   });
 });
 

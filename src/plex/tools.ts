@@ -9,7 +9,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore } from "./export-store.js";
+import { ExportStore, type ExportFile } from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -250,7 +250,11 @@ export class PlexTools {
       exportPath = path.join(baseExportDir, exportName);
     }
 
-    await mkdir(path.dirname(exportPath), { recursive: true });
+    // The store made its own directory. Creating it again here would bring back the
+    // directory of a session that closed in the meantime.
+    if (!exportStore) {
+      await mkdir(path.dirname(exportPath), { recursive: true });
+    }
 
     const safePageSize =
       Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : DEFAULT_LIMITS.exportPageSize;
@@ -328,7 +332,14 @@ export class PlexTools {
     const exportedSize = totalSize || totalExported;
 
     if (exportStore) {
-      const file = await exportStore.publish(exportName);
+      let file: ExportFile;
+      try {
+        file = await exportStore.publish(exportName);
+      } catch (error) {
+        // Most likely the session closed while the export ran.
+        await rm(exportPath, { force: true }).catch(() => undefined);
+        throw new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
+      }
       return {
         ...jsonResponse({
           exported: true,
@@ -1140,7 +1151,8 @@ export class PlexTools {
    * totalSize, on a page identical to the last (Plex ignored the offset), or after
    * PLEX_FILTERED_SCAN_MAX_PAGES. The last two are reported as scanCapped, since the
    * listing may hold more matches. So is a request that fails after the first page: the
-   * rows kept so far are returned. A failing first page throws, as there is nothing to keep.
+   * rows kept so far are returned, with the error as `failure` so a caller with a better
+   * fallback can still take it. A failing first page throws, as there is nothing to keep.
    * `endsAt` marks the first row of a tail that can hold no
    * more matches: the row and everything after it are dropped and the listing counts as
    * finished.
@@ -1152,11 +1164,12 @@ export class PlexTools {
     keep: (row: Record<string, unknown>) => boolean,
     limit: number,
     endsAt?: (row: Record<string, unknown>) => boolean
-  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean }> {
+  ): Promise<{ rows: Record<string, unknown>[]; scanCapped: boolean; failure?: unknown }> {
     const kept: Record<string, unknown>[] = [];
     let received = 0;
     let previousKeys: string | undefined;
     let finished = false;
+    let failure: unknown;
 
     for (let page = 0; page < PLEX_FILTERED_SCAN_MAX_PAGES; page++) {
       let data: unknown;
@@ -1174,6 +1187,7 @@ export class PlexTools {
         console.error(
           `collectFiltered: page ${page + 1} of ${endpoint} failed, returning ${kept.length} rows read so far: ${this.getErrorMessage(error)}`
         );
+        failure = error;
         break;
       }
       const container = (data as { MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: unknown } })
@@ -1202,13 +1216,17 @@ export class PlexTools {
       }
     }
 
-    return { rows: kept.slice(0, limit), scanCapped: !finished };
+    return { rows: kept.slice(0, limit), scanCapped: !finished, ...(failure !== undefined && { failure }) };
   }
 
   /**
    * Session history from Plex's history endpoint, as data. Throws if the
-   * endpoint fails; callers choose their own fallback. Callers that need data
-   * use this and not getWatchHistory, whose text may be TOON instead of JSON.
+   * endpoint fails on its first request; callers choose their own fallback. With a
+   * type filter the history is paged: a later page that fails returns the rows kept
+   * so far, flagged scanCapped. If none were kept it throws as well, unless a user
+   * was asked for, since the callers' library fallback cannot filter by user.
+   * Callers that need data use this and not getWatchHistory, whose text may be TOON
+   * instead of JSON.
    */
   private async fetchWatchHistory(
     limit: number,
@@ -1235,13 +1253,17 @@ export class PlexTools {
     } else {
       // The type filter is ours, not Plex's, so page until there are enough matches.
       const pageLimit = Math.max(1, limit);
-      ({ rows: sessions, scanCapped } = await this.collectFiltered(
+      let failure: unknown;
+      ({ rows: sessions, scanCapped, failure } = await this.collectFiltered(
         endpoint,
         params,
         Math.max(pageLimit, 100),
         (session) => session.type === rowType,
         pageLimit
       ));
+      if (failure !== undefined && sessions.length === 0 && !userId) {
+        throw failure;
+      }
     }
 
     return {
@@ -1574,10 +1596,22 @@ export class PlexTools {
 
   // ── Private helpers ─────────────────────────────────────────
 
+  /**
+   * A stream that failed to open, or failed earlier, is destroyed: a write to it returns
+   * false and no drain or error follows, so waiting on one would never end.
+   */
+  private assertStreamUsable(stream: ReturnType<typeof createWriteStream>): void {
+    if (stream.destroyed) {
+      throw stream.errored ?? new Error("The export file was closed before the export finished");
+    }
+  }
+
   private async writeToStream(stream: ReturnType<typeof createWriteStream>, chunk: string): Promise<void> {
+    this.assertStreamUsable(stream);
     if (stream.write(chunk)) {
       return;
     }
+    this.assertStreamUsable(stream);
     await new Promise<void>((resolve, reject) => {
       const onDrain = () => {
         stream.off("error", onError);
@@ -1594,6 +1628,7 @@ export class PlexTools {
   }
 
   private async finishStream(stream: ReturnType<typeof createWriteStream>): Promise<void> {
+    this.assertStreamUsable(stream);
     await new Promise<void>((resolve, reject) => {
       stream.once("finish", () => resolve());
       stream.once("error", (error) => reject(error));
