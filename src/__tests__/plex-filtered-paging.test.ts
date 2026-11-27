@@ -26,11 +26,13 @@ function pagedServer(rows: Row[], extra: Row = {}) {
 
 function setup() {
   const makeRequest = vi.fn();
+  const getAccountServerToken = vi.fn();
   const client = {
     makeRequest,
+    getAccountServerToken,
     getPlexTypeId: (type: string) => PlexClient.prototype.getPlexTypeId.call(null, type),
   } as unknown as PlexClient;
-  return { makeRequest, tools: new PlexTools(client) };
+  return { makeRequest, getAccountServerToken, tools: new PlexTools(client) };
 }
 
 const parse = (response: { content: Array<{ text: string }> }) => JSON.parse(response.content[0].text);
@@ -165,12 +167,13 @@ describe("a later page of the primary listing fails", () => {
   const viewedMovie = (n: number): Row => ({ ratingKey: `lib-m${n}`, title: `Library movie ${n}`, type: "movie", lastViewedAt: 5_000 - n, viewCount: 1, duration: 1000 });
 
   let makeRequest: ReturnType<typeof vi.fn>;
+  let getAccountServerToken: ReturnType<typeof vi.fn>;
   let tools: PlexTools;
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    ({ makeRequest, tools } = setup());
+    ({ makeRequest, getAccountServerToken, tools } = setup());
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
@@ -189,6 +192,7 @@ describe("a later page of the primary listing fails", () => {
         if (Number(params["X-Plex-Container-Start"] ?? 0) > 0) throw new Error("timeout");
         return paged(path, params);
       }
+      if (path === "/identity") return { MediaContainer: { machineIdentifier: "machine-1" } };
       if (path === "/library/sections") return { MediaContainer: { Directory: [{ key: "1", title: "Movies" }] } };
       if (path === "/library/sections/1/all") return { MediaContainer: { Metadata: library, totalSize: library.length } };
       throw new Error("unavailable");
@@ -220,16 +224,17 @@ describe("a later page of the primary listing fails", () => {
     expect(result.watchHistory.map((row: Row) => row.ratingKey)).toEqual(["lib-m1", "lib-m2"]);
   });
 
-  // Control. The library fallback cannot filter by user, so one user's empty history must
-  // not be replaced by rows from the whole server.
-  it("getWatchHistory for one user stays empty and flagged instead of falling back", async () => {
+  // The library fallback reads as the requested account (#247), so a user's request falls
+  // back too. The owner, account 1, has no plex.tv entry and reads with the configured token.
+  it("getWatchHistory for one user falls back to that user's library metadata when no rows were kept", async () => {
     makeRequest.mockImplementation(historyDownAfterFirstPage(noMoviesOnFirstPage()));
+    getAccountServerToken.mockResolvedValue(undefined);
 
-    const result = parse(await tools.getWatchHistory(10, "42", "movie"));
+    const result = parse(await tools.getWatchHistory(10, "1", "movie"));
 
-    expect(result.watchHistory).toEqual([]);
-    expect(result.scanCapped).toBe(true);
-    expect(libraryRequests()).toBe(0);
+    expect(getAccountServerToken).toHaveBeenCalledWith("machine-1", "1");
+    expect(result.note).toBe(HISTORY_FALLBACK_NOTE);
+    expect(result.watchHistory.map((row: Row) => row.ratingKey)).toEqual(["lib-m1", "lib-m2"]);
   });
 
   // Control: passes with and without the fallback fix.

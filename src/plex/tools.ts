@@ -26,6 +26,7 @@ import {
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
   PLEX_TAGGABLE_TYPE_IDS,
+  PLEX_OWNER_ACCOUNT_ID,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
@@ -1223,8 +1224,7 @@ export class PlexTools {
    * Session history from Plex's history endpoint, as data. Throws if the
    * endpoint fails on its first request; callers choose their own fallback. With a
    * type filter the history is paged: a later page that fails returns the rows kept
-   * so far, flagged scanCapped. If none were kept it throws as well, unless a user
-   * was asked for, since the callers' library fallback cannot filter by user.
+   * so far, flagged scanCapped. If none were kept it throws as well.
    * Callers that need data use this and not getWatchHistory, whose text may be TOON
    * instead of JSON.
    */
@@ -1261,7 +1261,7 @@ export class PlexTools {
         (session) => session.type === rowType,
         pageLimit
       ));
-      if (failure !== undefined && sessions.length === 0 && !userId) {
+      if (failure !== undefined && sessions.length === 0) {
         throw failure;
       }
     }
@@ -1308,15 +1308,18 @@ export class PlexTools {
       return jsonResponse(await this.fetchWatchHistory(limit, userId, rowType));
     } catch (error) {
       console.error(`get_watch_history: watch history failed, using library metadata: ${this.getErrorMessage(error)}`);
-      // Fallback: build pseudo-history from library metadata
+      // Fallback: build pseudo-history from library metadata, read as the requested account
       try {
-        return await this.getWatchHistoryFromLibraries(limit, userId, mediaType);
+        const tools = userId === undefined ? this : new PlexTools(await this.clientForAccount(userId), this.options);
+        return await tools.getWatchHistoryFromLibraries(limit, mediaType);
       } catch (fallbackError) {
         console.error(`get_watch_history: library fallback failed: ${this.getErrorMessage(fallbackError)}`);
         return jsonResponse({
           error: "Watch history not available",
           message: "Unable to retrieve watch history from this Plex server",
           suggestion: "This feature may require Plex Pass or detailed logging to be enabled",
+          // Says why no rows came back for this user rather than the configured account's.
+          ...(userId !== undefined && { reason: this.getErrorMessage(fallbackError) }),
           watchHistory: [],
         });
       }
@@ -2010,11 +2013,34 @@ export class PlexTools {
     });
   }
 
-  private async getWatchHistoryFromLibraries(
-    limit: number,
-    userId?: string,
-    mediaType: string = "all"
-  ): Promise<MCPResponse> {
+  /**
+   * A client that reads this server as one account. Plex reports watch state (viewCount,
+   * lastViewedAt) for the account whose token makes the request, and library listings take
+   * no account parameter, so another account's views need that account's own token. plex.tv
+   * lists it only to the server owner, so a successful lookup also shows the configured
+   * token is the owner's, which the server knows as PLEX_OWNER_ACCOUNT_ID.
+   */
+  private async clientForAccount(accountId: string): Promise<PlexClient> {
+    const machineIdentifier = await this.getMachineIdentifier();
+    let token: string | undefined;
+    try {
+      token = await this.client.getAccountServerToken(machineIdentifier, accountId);
+    } catch (error) {
+      throw new Error(
+        `Cannot read account ${accountId}'s watch state: plex.tv lists this server's users only to the server owner's token, ` +
+          `so a non-owner PLEX_TOKEN cannot specify userId; omit it to use PLEX_TOKEN's own account: ${this.getErrorMessage(error)}`
+      );
+    }
+    if (token) {
+      return this.client.withToken(token);
+    }
+    if (accountId === PLEX_OWNER_ACCOUNT_ID) {
+      return this.client;
+    }
+    throw new Error(`No access token for account ${accountId}: plex.tv does not list it as a user of this server`);
+  }
+
+  private async getWatchHistoryFromLibraries(limit: number, mediaType: string = "all"): Promise<MCPResponse> {
     const librariesData = await this.client.makeRequest("/library/sections");
     const libContainer = librariesData as { MediaContainer?: { Directory?: Record<string, unknown>[] } };
     const libraries = libContainer.MediaContainer?.Directory || [];
@@ -2245,7 +2271,9 @@ export class PlexTools {
     qualityBias: number = 1.0,
     traktWatchedTitles?: Set<string>,
   ): Promise<MCPResponse> {
-    const allMovies = await this.client.getLibraryMoviesWithMeta(libraryKey, userId);
+    // Plex reports watch state for the token's account, so read the library as the user.
+    const client = userId === undefined ? this.client : await this.clientForAccount(userId);
+    const allMovies = await client.getLibraryMoviesWithMeta(libraryKey);
 
     // Merge Plex and Trakt watched data — Trakt catches off-Plex watches
     const isWatched = (m: LibraryMovieRecord): boolean => {

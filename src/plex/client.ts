@@ -12,6 +12,12 @@ import { PlexMovie, PlexShow, PlexEpisode, PlexWatchSession } from "../trakt/map
 import { validatePlexId } from "../shared/utils.js";
 
 const PLEX_DISCOVER_BASE_URL = "https://discover.provider.plex.tv";
+const PLEX_TV_BASE_URL = "https://plex.tv";
+
+/** One attribute of an XML start tag, for the few plex.tv endpoints that answer only in XML. */
+function xmlAttribute(attributes: string, name: string): string | undefined {
+  return attributes.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`))?.[1];
+}
 
 /**
  * A paged listing failed after at least one page had been read, or could not be walked to
@@ -68,6 +74,34 @@ export class PlexClient implements PlexAPIClient {
     return response.data;
   }
 
+  /** A client for the same server that sends another account's token. */
+  withToken(token: string): PlexClient {
+    return new PlexClient({ ...this.config, token });
+  }
+
+  /**
+   * Another account's access token for this server, from plex.tv's list of the server's
+   * shared users, or undefined when the account has no entry there (the owner never does).
+   * plex.tv answers only the owner's token; others get HTTP 401, which is thrown.
+   */
+  async getAccountServerToken(machineIdentifier: string, accountId: string): Promise<string | undefined> {
+    const response = await axios(`${PLEX_TV_BASE_URL}/api/servers/${encodeURIComponent(machineIdentifier)}/shared_servers`, {
+      headers: {
+        "X-Plex-Token": this.config.token,
+        "X-Plex-Client-Identifier": this.config.clientIdentifier,
+        "X-Plex-Product": "plex-mcp-server",
+      },
+      // XML even when JSON is asked for.
+      responseType: "text",
+    });
+    for (const [, attributes] of String(response.data).matchAll(/<SharedServer\b([^>]*)>/g)) {
+      if (xmlAttribute(attributes, "userID") === accountId) {
+        return xmlAttribute(attributes, "accessToken");
+      }
+    }
+    return undefined;
+  }
+
   getPlexTypeId(type: string): number {
     if (!Object.hasOwn(PLEX_TYPE_IDS, type)) {
       throw new Error(`Unknown media type "${type}". Expected one of: ${Object.keys(PLEX_TYPE_IDS).join(", ")}`);
@@ -97,7 +131,8 @@ export class PlexClient implements PlexAPIClient {
       }));
   }
 
-  async getLibraryMoviesWithMeta(libraryKey: string, userId?: string): Promise<LibraryMovieRecord[]> {
+  /** Every movie in the library, with the watch state of the account this client's token belongs to. */
+  async getLibraryMoviesWithMeta(libraryKey: string): Promise<LibraryMovieRecord[]> {
     const allMovies: LibraryMovieRecord[] = [];
     let offset = 0;
     const pageSize = PLEX_CONTAINER_SIZE;
@@ -108,7 +143,6 @@ export class PlexClient implements PlexAPIClient {
         "X-Plex-Container-Start": offset,
         "X-Plex-Container-Size": pageSize,
       };
-      if (userId) params.accountID = userId;
 
       const data = await this.makeRequest(`/library/sections/${libraryKey}/all`, params);
       const container = data as { MediaContainer?: { totalSize?: number; Metadata?: Record<string, unknown>[] } };
