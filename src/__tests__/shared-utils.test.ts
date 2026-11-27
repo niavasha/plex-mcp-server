@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { truncate, validatePlexId, chunkArray } from "../shared/utils.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { truncate, validatePlexId, chunkArray, positiveIntFromEnv } from "../shared/utils.js";
 
 describe("truncate", () => {
   it("returns string unchanged when under limit", () => {
@@ -84,5 +84,35 @@ describe("chunkArray", () => {
 
   it("chunks into singles when size is 1", () => {
     expect(chunkArray([1, 2, 3], 1)).toEqual([[1], [2], [3]]);
+  });
+});
+
+describe("positiveIntFromEnv", () => {
+  const NAME = "POSITIVE_INT_FROM_ENV_TEST";
+
+  afterEach(() => {
+    delete process.env[NAME];
+  });
+
+  it("returns the fallback when the variable is unset or empty", () => {
+    expect(positiveIntFromEnv(NAME, 7)).toBe(7);
+    process.env[NAME] = "";
+    expect(positiveIntFromEnv(NAME, 7)).toBe(7);
+  });
+
+  it("reads a positive whole number", () => {
+    process.env[NAME] = " 1048576 ";
+    expect(positiveIntFromEnv(NAME, 7)).toBe(1048576);
+  });
+
+  // Reads the leading number like the settings always have, so "1800s" stays 1800.
+  it("reads the leading number of a value with trailing text", () => {
+    process.env[NAME] = "1800s";
+    expect(positiveIntFromEnv(NAME, 7)).toBe(1800);
+  });
+
+  it.each(["0", "-5", "abc"])("returns the fallback for %j", (raw) => {
+    process.env[NAME] = raw;
+    expect(positiveIntFromEnv(NAME, 7)).toBe(7);
   });
 });

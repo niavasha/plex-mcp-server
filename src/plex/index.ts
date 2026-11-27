@@ -4,7 +4,13 @@
 
 export { PlexClient } from "./client.js";
 export { PlexTools } from "./tools.js";
-export { ToolRegistry, createPlexToolRegistry, toWireResponse } from "./tool-registry.js";
+export {
+  ToolRegistry,
+  createPlexToolRegistry,
+  dispatchToolCall,
+  protocolVersionOf,
+  toWireResponse,
+} from "./tool-registry.js";
 export { PLEX_TOOL_SCHEMAS, PLEX_CORE_TOOL_SCHEMAS, PLEX_MUTATIVE_TOOL_SCHEMAS } from "./tool-schemas.js";
 export {
   PLEX_TYPE_IDS,

@@ -15,9 +15,10 @@ import {
   PlexTools,
   createPlexToolRegistry,
   DEFAULT_PLEX_URL,
-  toWireResponse,
+  dispatchToolCall,
+  protocolVersionOf,
 } from "./plex/index.js";
-import { ExportStore, registerExportResources } from "./plex/export-store.js";
+import { ExportStore, registerExportResources, startExportSweeper } from "./plex/export-store.js";
 import { startServer, type TransportMode } from "./shared/transport.js";
 import { SERVER_VERSION } from "./shared/version.js";
 import { listedToolSchemas } from "./shared/tool-list.js";
@@ -70,14 +71,18 @@ class UnifiedMCPServer {
       tools: listedToolSchemas(),
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const a = (args ?? {}) as Record<string, unknown>;
 
       try {
-        if (plexRegistry.has(name)) return toWireResponse(await plexRegistry.handle(name, a));
-        if (traktRegistry.has(name)) return await traktRegistry.handle(name, a);
-        return await arrRegistry.handle(name, a);
+        return await dispatchToolCall(
+          [plexRegistry, traktRegistry, arrRegistry],
+          name,
+          a,
+          protocolVersionOf(extra.requestInfo),
+          extra.signal
+        );
       } catch (error) {
         if (error instanceof McpError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
@@ -90,7 +95,13 @@ class UnifiedMCPServer {
 }
 
 export async function main() {
-  await startServer((transport) => UnifiedMCPServer.createServer(transport), "Plex MCP server (unified)");
+  const transport = await startServer(
+    (transport) => UnifiedMCPServer.createServer(transport),
+    "Plex MCP server (unified)"
+  );
+  // Only HTTP keeps exports in the temp directory. The first sweep also clears
+  // what a server that was killed left there.
+  if (transport === "http") startExportSweeper();
 }
 
 main().catch((error) => {

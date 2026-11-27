@@ -115,3 +115,11 @@ export function validatePlexTotalSize(
 
   return validated as { MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number } };
 }
+
+/** A positive integer from an environment variable, or `fallback` when unset or invalid. */
+export function positiveIntFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}

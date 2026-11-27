@@ -6,7 +6,7 @@ import { TRAKT_TOOL_SCHEMAS } from "../trakt/tool-schemas.js";
 import { ARR_TOOL_SCHEMAS } from "../arr/tool-schemas.js";
 
 // Import registries and functions for dispatch testing
-import { ToolRegistry, createPlexToolRegistry } from "../plex/tool-registry.js";
+import { ToolRegistry, createPlexToolRegistry, dispatchToolCall } from "../plex/tool-registry.js";
 import { createTraktToolRegistry } from "../trakt/tool-registry.js";
 import { createArrToolRegistry } from "../arr/tool-registry.js";
 import { PlexTools } from "../plex/tools.js";
@@ -192,12 +192,8 @@ describe("Unified server — dispatch routing", () => {
   });
 
   it("dispatch chain routes correctly: plex → trakt → arr → error", async () => {
-    // Simulate the dispatch chain from plex-mcp-server.ts
-    async function dispatch(name: string, args: Record<string, unknown> = {}) {
-      if (plexRegistry.has(name)) return await plexRegistry.handle(name, args);
-      if (traktRegistry.has(name)) return await traktRegistry.handle(name, args);
-      return await arrRegistry.handle(name, args);
-    }
+    const dispatch = (name: string, args: Record<string, unknown> = {}) =>
+      dispatchToolCall([plexRegistry, traktRegistry, arrRegistry], name, args, "2025-06-18");
 
     // Plex tool dispatches to plexRegistry
     const plexResult = await dispatch("get_libraries");
@@ -205,6 +201,39 @@ describe("Unified server — dispatch routing", () => {
 
     // Unknown tool throws McpError from arrRegistry (the fallback)
     await expect(dispatch("totally_fake_tool")).rejects.toThrow("Unknown tool: totally_fake_tool");
+  });
+
+  it("passes the call's abort signal to the handler, and export_library on to the export", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const registry = new ToolRegistry();
+    registry.register("tool", async (_args, signal) => {
+      seen.push(signal);
+      return { content: [{ type: "text", text: "ok" }] };
+    });
+    const exportLibrary = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ok" }] }));
+    const exportRegistry = createPlexToolRegistry({ exportLibrary } as unknown as PlexTools);
+    const signal = new AbortController().signal;
+
+    await dispatchToolCall([registry], "tool", {}, "2025-06-18", signal);
+    await dispatchToolCall([exportRegistry], "export_library", { libraryKey: "1" }, "2025-06-18", signal);
+
+    expect(seen).toEqual([signal]);
+    expect(exportLibrary).toHaveBeenCalledWith("1", undefined, undefined, expect.any(Number), signal);
+  });
+
+  // #246 item 5: only Plex results went through toWireResponse.
+  it("moves resource links into content whichever registry handled the call", async () => {
+    const link = { type: "resource_link" as const, uri: "plex-export:///a.json", name: "a.json" };
+    const registries = [new ToolRegistry(), new ToolRegistry(), new ToolRegistry()];
+    registries.forEach((registry, i) =>
+      registry.register(`tool_${i}`, async () => ({ content: [{ type: "text", text: `${i}` }], resourceLinks: [link] }))
+    );
+
+    for (let i = 0; i < registries.length; i++) {
+      expect(await dispatchToolCall(registries, `tool_${i}`, {}, "2025-06-18")).toEqual({
+        content: [{ type: "text", text: `${i}` }, link],
+      });
+    }
   });
 });
 

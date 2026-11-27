@@ -2,12 +2,18 @@
  * Tool Registry — eliminates switch statements for tool dispatch.
  */
 
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import {
+  DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  ErrorCode,
+  McpError,
+  type RequestInfo,
+} from "@modelcontextprotocol/sdk/types.js";
 import { PlexTools } from "./tools.js";
 import { MCPResponse } from "./types.js";
 import { DEFAULT_LIMITS, isMutativeOpsEnabled, PLEX_MUTATIVE_OPS_ENV_VAR } from "./constants.js";
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<MCPResponse>;
+/** `signal` aborts when the client cancels the call or its connection closes. */
+type ToolHandler = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<MCPResponse>;
 type TraktStatsProvider = {
   traktGetUserStats(): Promise<Record<string, unknown>>;
   getWatchedMovieTitles(): Promise<Array<{ title: string; year: number; plays: number }> | null>;
@@ -18,21 +24,40 @@ type ToolRegistryOptions = {
   traktFunctions?: TraktStatsProvider;
 };
 
-/** Moves a response's resource links into `content`, where MCP clients look for them. */
-export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse) {
+/** The first protocol version with resource_link content. */
+export const RESOURCE_LINK_PROTOCOL_VERSION = "2025-06-18";
+
+/**
+ * The protocol version a tool call runs under. Over HTTP, clients on 2025-06-18 and
+ * later send it with every request; a request without it means 2025-03-26, as the spec
+ * says. Over stdio there are no headers, and no tool returns links there.
+ */
+export function protocolVersionOf(requestInfo: Pick<RequestInfo, "headers"> | undefined): string {
+  const header = requestInfo?.headers["mcp-protocol-version"];
+  return typeof header === "string" ? header : DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
+}
+
+/**
+ * Moves a response's resource links into `content`, where MCP clients look for them.
+ * A client on an older protocol rejects the whole result over a resource_link block,
+ * so it gets none; the result's text still names the resource for resources/read.
+ */
+export function toWireResponse({ resourceLinks = [], ...response }: MCPResponse, protocolVersion: string) {
+  // Protocol versions are dates (YYYY-MM-DD), so they compare as strings.
+  if (protocolVersion < RESOURCE_LINK_PROTOCOL_VERSION) return response;
   return { ...response, content: [...response.content, ...resourceLinks] };
 }
 
 // Helper: wrap a handler to check mutative ops are enabled at runtime
 function guardMutativeOp(handler: ToolHandler): ToolHandler {
-  return async (args: Record<string, unknown>) => {
+  return async (args: Record<string, unknown>, signal?: AbortSignal) => {
     if (!isMutativeOpsEnabled()) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         `Mutative operations are disabled. Enable with ${PLEX_MUTATIVE_OPS_ENV_VAR}=true`
       );
     }
-    return handler(args);
+    return handler(args, signal);
   };
 }
 
@@ -47,13 +72,29 @@ export class ToolRegistry {
     return this.handlers.has(name);
   }
 
-  async handle(name: string, args: Record<string, unknown> = {}): Promise<MCPResponse> {
+  async handle(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<MCPResponse> {
     const handler = this.handlers.get(name);
     if (!handler) {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
-    return handler(args);
+    return handler(args, signal);
   }
+}
+
+/**
+ * Runs a tool call on the first registry that has the tool and returns the result as
+ * it goes to the client. The last registry reports a name that no registry has. Every
+ * result passes through toWireResponse, so no registry can send internal fields.
+ */
+export async function dispatchToolCall(
+  registries: readonly ToolRegistry[],
+  name: string,
+  args: Record<string, unknown>,
+  protocolVersion: string,
+  signal?: AbortSignal
+) {
+  const registry = registries.find((candidate) => candidate.has(name)) ?? registries[registries.length - 1];
+  return toWireResponse(await registry.handle(name, args, signal), protocolVersion);
 }
 
 /** Pre-registers Plex tools; mutative tools are optional */
@@ -72,12 +113,13 @@ export function createPlexToolRegistry(tools: PlexTools, options: ToolRegistryOp
     )
   );
 
-  registry.register("export_library", (args) =>
+  registry.register("export_library", (args, signal) =>
     tools.exportLibrary(
       args.libraryKey as string,
       args.type as string | undefined,
       args.outputPath as string | undefined,
-      (args.pageSize as number) || DEFAULT_LIMITS.exportPageSize
+      (args.pageSize as number) || DEFAULT_LIMITS.exportPageSize,
+      signal
     )
   );
 

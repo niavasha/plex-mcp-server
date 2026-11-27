@@ -6,7 +6,7 @@
 
 import axios, { AxiosRequestConfig } from "axios";
 import { PlexConfig, LibraryMovieRecord } from "./types.js";
-import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE, PLEX_MAX_PAGES } from "./constants.js";
+import { PLEX_TYPE_IDS, PLEX_CONTAINER_SIZE, PLEX_MAX_PAGES, plexApiTimeoutMs } from "./constants.js";
 import { PlexAPIClient } from "../trakt/sync.js";
 import { PlexMovie, PlexShow, PlexEpisode, PlexWatchSession } from "../trakt/mapper.js";
 import { validatePlexId } from "../shared/utils.js";
@@ -25,6 +25,13 @@ export class PlexPagingError extends Error {
   }
 }
 
+export interface PlexRequestOptions {
+  /** Milliseconds the request may take. Defaults to PLEX_API_TIMEOUT_SECONDS. */
+  timeout?: number;
+  /** Aborts the request, for example when the client cancels the tool call. */
+  signal?: AbortSignal;
+}
+
 export class PlexClient implements PlexAPIClient {
   constructor(private config: PlexConfig) {
     // Strip trailing slashes to prevent double-slash in URLs
@@ -35,7 +42,12 @@ export class PlexClient implements PlexAPIClient {
     };
   }
 
-  async makeRequest(endpoint: string, params: Record<string, string | number> = {}, method: string = "GET"): Promise<Record<string, unknown>> {
+  async makeRequest(
+    endpoint: string,
+    params: Record<string, string | number> = {},
+    method: string = "GET",
+    options: PlexRequestOptions = {}
+  ): Promise<Record<string, unknown>> {
     const url = `${this.config.baseUrl}${endpoint}`;
     const axiosConfig: AxiosRequestConfig = {
       method,
@@ -44,6 +56,8 @@ export class PlexClient implements PlexAPIClient {
         Accept: "application/json",
       },
       params,
+      timeout: options.timeout ?? plexApiTimeoutMs(),
+      signal: options.signal,
     };
 
     const response = await axios(url, axiosConfig);
@@ -64,6 +78,7 @@ export class PlexClient implements PlexAPIClient {
         Accept: "application/json",
       },
       params,
+      timeout: plexApiTimeoutMs(),
     });
     return response.data;
   }

@@ -4,7 +4,7 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexTools } from "../plex/tools.js";
 import { PlexClient } from "../plex/client.js";
-import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS } from "../plex/constants.js";
+import { SUMMARY_PREVIEW_LENGTH, DEFAULT_LIMITS, PLEX_EXPORT_TIMEOUT } from "../plex/constants.js";
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 /** Create a mock PlexClient without hitting any real server */
@@ -603,7 +603,30 @@ describe("PlexTools", () => {
         const exported = JSON.parse(await readFile(exportFile, "utf8"));
         expect(exported[0]).toMatchObject(episodeFields);
         expectNoShowFields(exported[1]);
+        // An export's page requests use the export's own timeout, not PLEX_API_TIMEOUT_SECONDS.
+        expect(client.makeRequest).toHaveBeenCalledWith(
+          "/library/sections/2/all",
+          expect.any(Object),
+          "GET",
+          { timeout: PLEX_EXPORT_TIMEOUT }
+        );
       } finally {
+        await rm(exportFile, { force: true });
+      }
+    });
+
+    it("exportLibrary takes its page timeout from PLEX_EXPORT_TIMEOUT_SECONDS", async () => {
+      (client.makeRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ MediaContainer: { totalSize: 1, Metadata: [movie] } });
+      const outputPath = `timeout-test-${process.pid}.json`;
+      const exportFile = path.resolve(process.cwd(), "exports", outputPath);
+      const previous = process.env.PLEX_EXPORT_TIMEOUT_SECONDS;
+      process.env.PLEX_EXPORT_TIMEOUT_SECONDS = "300";
+      try {
+        await tools.exportLibrary("2", "movie", outputPath);
+        expect(client.makeRequest).toHaveBeenCalledWith("/library/sections/2/all", expect.any(Object), "GET", { timeout: 300_000 });
+      } finally {
+        if (previous === undefined) delete process.env.PLEX_EXPORT_TIMEOUT_SECONDS;
+        else process.env.PLEX_EXPORT_TIMEOUT_SECONDS = previous;
         await rm(exportFile, { force: true });
       }
     });

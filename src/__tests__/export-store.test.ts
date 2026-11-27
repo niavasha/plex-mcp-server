@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,9 +8,9 @@ import { SessionStore, createMcpRequestHandler } from "../shared/transport.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { ExportStore, registerExportResources } from "../plex/export-store.js";
-import { toWireResponse } from "../plex/tool-registry.js";
+import { ErrorCode, McpError, ResourceListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ExportStore, registerExportResources, sweepExpiredExports } from "../plex/export-store.js";
+import { protocolVersionOf, toWireResponse } from "../plex/tool-registry.js";
 import { PlexTools } from "../plex/tools.js";
 import type { PlexClient } from "../plex/client.js";
 
@@ -60,11 +60,91 @@ describe("ExportStore", () => {
     expect(await store.read(file.uri)).toBe("[1]\n");
   });
 
+  // #246 item 1: a session that exported repeatedly grew by one full export each time.
+  it("removes the session's oldest exports once a new one does not fit", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 10 });
+    try {
+      const published = [];
+      for (const name of ["a.json", "b.json", "c.json"]) {
+        await writeFile(await small.reserve(name), "[12]");
+        published.push(await small.publish(name));
+      }
+      const [oldest, ...kept] = published;
+
+      expect(small.list()).toEqual(kept);
+      await expect(small.read(oldest.uri)).rejects.toThrow(/Unknown resource/);
+      expect((await readdir(path.dirname(await small.reserve("x.json")))).sort()).toEqual(["b.json", "c.json", "x.json"]);
+    } finally {
+      await small.dispose();
+    }
+  });
+
+  it("refuses an export that alone is larger than the session may keep, and keeps the others", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 10 });
+    try {
+      await writeFile(await small.reserve("a.json"), "[1]");
+      const kept = await small.publish("a.json");
+      await writeFile(await small.reserve("big.json"), "[1234567890]");
+
+      await expect(small.publish("big.json")).rejects.toThrow(/larger than the 10 bytes a session may keep/);
+      await expect(small.publish("big.json")).rejects.toMatchObject({ code: ErrorCode.InvalidRequest });
+      expect(small.list()).toEqual([kept]);
+    } finally {
+      await small.dispose();
+    }
+  });
+
+  it("takes the limit from PLEX_EXPORT_MAX_BYTES, 256 KiB by default", () => {
+    const saved = process.env.PLEX_EXPORT_MAX_BYTES;
+    try {
+      delete process.env.PLEX_EXPORT_MAX_BYTES;
+      expect(new ExportStore().maxBytes).toBe(262_144);
+      process.env.PLEX_EXPORT_MAX_BYTES = "1000";
+      expect(new ExportStore().maxBytes).toBe(1000);
+    } finally {
+      if (saved === undefined) delete process.env.PLEX_EXPORT_MAX_BYTES;
+      else process.env.PLEX_EXPORT_MAX_BYTES = saved;
+    }
+  });
+
   it("does not expose a reserved file until it is published", async () => {
     await writeFile(await store.reserve("a.json"), "[]");
 
     expect(store.list()).toEqual([]);
     await expect(store.read("plex-export:///a.json")).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+  });
+
+  it("says a published file deleted from outside is unknown, without the server's path", async () => {
+    const filePath = await store.reserve("a.json");
+    await writeFile(filePath, "[]");
+    const file = await store.publish("a.json");
+    await rm(filePath);
+
+    const error = await store.read(file.uri).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(McpError);
+    expect((error as McpError).code).toBe(ErrorCode.InvalidParams);
+    expect((error as McpError).message).not.toContain(path.dirname(filePath));
+    expect(store.list()).toEqual([]);
+  });
+
+  it("reports any other read failure without the server's path", async () => {
+    const filePath = await store.reserve("a.json");
+    await writeFile(filePath, "[]");
+    const file = await store.publish("a.json");
+    // Reading a directory fails with EISDIR, whose message names the path.
+    await rm(filePath);
+    await mkdir(filePath);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const error = await store.read(file.uri).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(McpError);
+      expect((error as McpError).code).toBe(ErrorCode.InternalError);
+      expect((error as McpError).message).not.toContain(path.dirname(filePath));
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("refuses URIs it did not publish, including path traversal", async () => {
@@ -315,6 +395,24 @@ describe("ExportStore default root", () => {
     expect(await exists(second)).toBe(false);
   });
 
+  // Each replaced root used to add an exit listener, until Node warned about too many.
+  it("keeps one exit handler across replaced roots and removes all of them on exit", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const oldFile = await new fresh.ExportStore().reserve("a.json");
+    const first = path.dirname(path.dirname(oldFile));
+    // No longer private, so the next session gets a new root. The old session's file stays.
+    await chmod(first, 0o755);
+
+    const second = path.dirname(path.dirname(await new fresh.ExportStore().reserve("b.json")));
+
+    expect(second).not.toBe(first);
+    expect(await exists(oldFile)).toBe(true);
+    expect(exitHandlers()).toHaveLength(1);
+    exitHandlers()[0]();
+    expect(await exists(first)).toBe(false);
+    expect(await exists(second)).toBe(false);
+  });
+
   // One failure to create the shared directory must not fail every later export.
   it("tries again after the shared directory could not be created", async () => {
     const fresh = await import("../plex/export-store.js");
@@ -335,18 +433,232 @@ describe("ExportStore default root", () => {
   });
 });
 
+// #246 item 6: nothing removed the directory of a process that was killed.
+describe("export lifetime", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const NOW = Date.UTC(2030, 0, 15);
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "export-store-sweep-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** Gives a file or directory this modification time, `daysAgo` before NOW. */
+  const age = (target: string, daysAgo: number) => {
+    const when = new Date(NOW - daysAgo * DAY_MS);
+    return utimes(target, when, when);
+  };
+
+  async function writeAged(file: string, daysAgo: number) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "[]");
+    await age(file, daysAgo);
+  }
+
+  it("takes the lifetime from PLEX_EXPORT_MAX_AGE_SECONDS, 7 days by default", () => {
+    const saved = process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+    try {
+      delete process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+      expect(new ExportStore().maxAgeMs).toBe(7 * DAY_MS);
+      process.env.PLEX_EXPORT_MAX_AGE_SECONDS = "60";
+      expect(new ExportStore().maxAgeMs).toBe(60_000);
+    } finally {
+      if (saved === undefined) delete process.env.PLEX_EXPORT_MAX_AGE_SECONDS;
+      else process.env.PLEX_EXPORT_MAX_AGE_SECONDS = saved;
+    }
+  });
+
+  it("a store forgets and deletes an export once it is older than the lifetime", async () => {
+    let clock = NOW;
+    const store = new ExportStore({ root: dir, maxAgeMs: 7 * DAY_MS, now: () => clock });
+    try {
+      const filePath = await store.reserve("a.json");
+      await writeAged(filePath, 0);
+      const file = await store.publish("a.json");
+
+      clock += 7 * DAY_MS;
+      expect(store.list()).toEqual([file]);
+
+      clock += 1;
+      expect(store.list()).toEqual([]);
+      await expect(store.read(file.uri)).rejects.toThrow(/Unknown resource/);
+      await vi.waitFor(async () => expect(await exists(filePath)).toBe(false));
+    } finally {
+      await store.dispose();
+    }
+  });
+
+  it("deletes expired files and the directories they leave empty, from every process's directory", async () => {
+    const killed = path.join(dir, "plex-mcp-exports-killed");
+    const live = path.join(dir, "plex-mcp-exports-live");
+    const unrelated = path.join(dir, "something-else");
+    await writeAged(path.join(killed, "session-a", "old.json"), 8);
+    await writeAged(path.join(live, "session-b", "old.json"), 8);
+    await writeAged(path.join(live, "session-b", "new.json"), 1);
+    await writeAged(path.join(unrelated, "old.json"), 30);
+    // Creating entries moved the directories' own times; put them back.
+    for (const target of [path.join(killed, "session-a"), killed, path.join(live, "session-b"), live]) {
+      await age(target, 8);
+    }
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(killed)).toBe(false);
+    expect(await readdir(path.join(live, "session-b"))).toEqual(["new.json"]);
+    expect(await exists(path.join(unrelated, "old.json"))).toBe(true);
+  });
+
+  it("keeps a recent empty directory, which a live session may be about to write to", async () => {
+    const fresh = path.join(dir, "plex-mcp-exports-fresh", "session-c");
+    await mkdir(fresh, { recursive: true });
+    await age(fresh, 1);
+    await age(path.dirname(fresh), 1);
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(fresh)).toBe(true);
+  });
+
+  it("startExportSweeper sweeps the temp directory at once", async () => {
+    const fresh = await import("../plex/export-store.js");
+    const killed = path.join(dir, "plex-mcp-exports-killed");
+    const old = new Date(Date.now() - 8 * DAY_MS);
+    await mkdir(path.join(killed, "session-a"), { recursive: true });
+    await writeFile(path.join(killed, "session-a", "old.json"), "[]");
+    for (const target of [path.join(killed, "session-a", "old.json"), path.join(killed, "session-a"), killed]) {
+      await utimes(target, old, old);
+    }
+    const realTmp = process.env.TMPDIR;
+    process.env.TMPDIR = dir;
+    try {
+      fresh.startExportSweeper();
+      await vi.waitFor(async () => expect(await exists(killed)).toBe(false));
+    } finally {
+      fresh.stopExportSweeper();
+      if (realTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = realTmp;
+    }
+  });
+
+  it("startExportSweeper schedules the next sweep only once the current one has finished", async () => {
+    const fresh = await import("../plex/export-store.js");
+    await mkdir(path.join(dir, "plex-mcp-exports-busy", "session-a"), { recursive: true });
+    const realTmp = process.env.TMPDIR;
+    process.env.TMPDIR = dir;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    try {
+      fresh.startExportSweeper();
+      // The first sweep is still reading the directory: nothing is scheduled yet.
+      expect(vi.getTimerCount()).toBe(0);
+      // The sweep reads the real filesystem, which can take many turns of the event loop
+      // while other test files run, so wait on the clock, which fake timers leave alone.
+      const deadline = Date.now() + 10_000;
+      while (vi.getTimerCount() === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(vi.getTimerCount()).toBe(1);
+
+      fresh.stopExportSweeper();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      fresh.stopExportSweeper();
+      vi.useRealTimers();
+      if (realTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = realTmp;
+    }
+  });
+
+  it("keeps an old, empty session directory of a live store, which reserve() may just have handed out", async () => {
+    const root = path.join(dir, "plex-mcp-exports-live");
+    const store = new ExportStore({ root });
+    try {
+      const sessionDir = path.dirname(await store.reserve("a.json"));
+      await age(sessionDir, 8);
+      await age(root, 8);
+
+      await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+      expect(await exists(sessionDir)).toBe(true);
+    } finally {
+      await store.dispose();
+    }
+  });
+
+  // #2 of the export-limits review: another server's sweep removed an old, empty session
+  // directory between reserve() and the export opening its file there.
+  it("another server's sweep keeps the directory of an export that reserve() handed out", async () => {
+    const root = path.join(dir, "plex-mcp-exports-other");
+    const store = new ExportStore({ root });
+    try {
+      const filePath = await store.reserve("a.json");
+      await age(filePath, 0);
+      await age(path.dirname(filePath), 8);
+      await age(root, 8);
+      // A separate module instance has its own live directories, as another process would.
+      vi.resetModules();
+      const other = await import("../plex/export-store.js");
+
+      await other.sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+      expect(await exists(filePath)).toBe(true);
+    } finally {
+      await store.dispose();
+    }
+  });
+
+  it.skipIf(process.geteuid?.() === 0)("goes on sweeping after an entry it cannot remove", async () => {
+    const stuck = path.join(dir, "plex-mcp-exports-stuck", "session-a");
+    const killed = path.join(dir, "plex-mcp-exports-killed");
+    await writeAged(path.join(stuck, "old.json"), 8);
+    await writeAged(path.join(killed, "session-b", "old.json"), 8);
+    for (const target of [path.join(killed, "session-b"), killed]) await age(target, 8);
+    await chmod(stuck, 0o500);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+      expect(await exists(killed)).toBe(false);
+      expect(await exists(path.join(stuck, "old.json"))).toBe(true);
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+      await chmod(stuck, 0o700);
+    }
+  });
+
+  it("does not follow links out of an export directory", async () => {
+    const outside = path.join(dir, "outside");
+    await writeAged(path.join(outside, "old.json"), 30);
+    const root = path.join(dir, "plex-mcp-exports-linked");
+    await mkdir(root);
+    await symlink(outside, path.join(root, "session-link"));
+
+    await sweepExpiredExports({ dir, maxAgeMs: 7 * DAY_MS, now: () => NOW });
+
+    expect(await exists(path.join(outside, "old.json"))).toBe(true);
+  });
+});
+
 describe("registerExportResources", () => {
   let store: ExportStore;
   let server: Server;
   let client: Client;
 
-  beforeEach(async () => {
-    store = new ExportStore({ root: fileRoot });
+  async function connect(target: ExportStore) {
+    store = target;
     server = new Server({ name: "test", version: "0" }, { capabilities: { tools: {} } });
     registerExportResources(server, store);
     client = new Client({ name: "test-client", version: "0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  }
+
+  beforeEach(async () => {
+    await connect(new ExportStore({ root: fileRoot }));
   });
 
   afterEach(async () => {
@@ -365,6 +677,69 @@ describe("registerExportResources", () => {
     const read = await client.readResource({ uri: file.uri });
     expect(read.contents).toEqual([{ uri: file.uri, mimeType: "application/json", text: '[{"ratingKey":"1"}]\n' }]);
   });
+
+  it("tells the client its list changed when an export is published, older ones evicted included", async () => {
+    expect(client.getServerCapabilities()?.resources?.listChanged).toBe(true);
+    const notified = vi.fn();
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, notified);
+
+    await writeFile(await store.reserve("a.json"), "[]");
+    await store.publish("a.json");
+
+    await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(1));
+  });
+
+  // #4 of the export-limits review: only publish() used to notify, so a client kept
+  // listing exports that were gone.
+  it("tells the client its list changed when an export expired", async () => {
+    await client.close();
+    await store.dispose();
+    let clock = Date.now();
+    await connect(new ExportStore({ root: fileRoot, maxAgeMs: 1000, now: () => clock }));
+    const notified = vi.fn();
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, notified);
+    await writeFile(await store.reserve("a.json"), "[]");
+    await store.publish("a.json");
+    await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(1));
+
+    clock += 2000;
+
+    expect((await client.listResources()).resources).toEqual([]);
+    await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(2));
+  });
+
+  it("tells the client its list changed when an export's file was deleted from outside", async () => {
+    const notified = vi.fn();
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, notified);
+    const filePath = await store.reserve("a.json");
+    await writeFile(filePath, "[]");
+    const file = await store.publish("a.json");
+    await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(1));
+
+    await rm(filePath);
+
+    await expect(client.readResource({ uri: file.uri })).rejects.toThrow(/Unknown resource/);
+    await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(2));
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "tells the client its list changed when the session's directory was replaced",
+    async () => {
+      const notified = vi.fn();
+      client.setNotificationHandler(ResourceListChangedNotificationSchema, notified);
+      const filePath = await store.reserve("a.json");
+      await writeFile(filePath, "[]");
+      await store.publish("a.json");
+      await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(1));
+
+      // No longer private, so the store gives it up, and its exports with it.
+      await chmod(path.dirname(filePath), 0o755);
+      await store.reserve("b.json");
+
+      expect(store.list()).toEqual([]);
+      await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(2));
+    }
+  );
 
   it("returns an error for an unknown resource", async () => {
     await expect(client.readResource({ uri: "plex-export:///missing.json" })).rejects.toThrow(/Unknown resource/);
@@ -480,6 +855,186 @@ describe("export_library over HTTP (export store)", () => {
     expect(JSON.parse(await store.read(link.uri))).toEqual([expect.objectContaining({ ratingKey: "1", title: "Movie A" })]);
   });
 
+  // #246 item 2: names came from Date.now(), so two exports in one millisecond shared a file.
+  it("gives concurrent exports of one library their own random file names", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const responses = await Promise.all([tools.exportLibrary("1", "movie"), tools.exportLibrary("1", "movie")]);
+      const links = responses.map((response) => response.resourceLinks![0]);
+
+      for (const link of links) {
+        expect(link.name).toMatch(/^[A-Za-z0-9]{32}\.json$/);
+        expect(JSON.parse(await store.read(link.uri))).toHaveLength(1);
+      }
+      expect(links[0].uri).not.toBe(links[1].uri);
+      expect(store.list()).toHaveLength(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("stops an export larger than the session may keep, and leaves the older exports alone", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 1000 });
+    const smallTools = new PlexTools(client as unknown as PlexClient, { exportStore: small });
+    try {
+      const first = (await smallTools.exportLibrary("1", "movie")).resourceLinks![0];
+      const many = Array.from({ length: 50 }, (_, i) => ({ ...movie, ratingKey: String(i) }));
+      client.makeRequest.mockResolvedValue({ MediaContainer: { totalSize: many.length, Metadata: many } });
+
+      const failed = smallTools.exportLibrary("1", "movie");
+      await expect(failed).rejects.toThrow(
+        "Failed to export library: The export is larger than the 1000 bytes a session may keep"
+      );
+      // The client can raise the limit, so this is not reported as a server fault.
+      await expect(failed).rejects.toMatchObject({ code: ErrorCode.InvalidRequest });
+      expect(small.list().map((file) => file.uri)).toEqual([first.uri]);
+      expect((await readdir(path.dirname(await small.reserve("x.json")))).sort()).toEqual([first.name, "x.json"].sort());
+    } finally {
+      await small.dispose();
+    }
+  });
+
+  // #3 of the export-limits review: parallel exports could each take the session's whole
+  // limit on disk before any publish() evicted anything.
+  it("runs a session's exports one at a time, and a failed one does not hold up the next", async () => {
+    let failFirst!: (error: Error) => void;
+    client.makeRequest.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (failFirst = reject))
+    );
+
+    const first = tools.exportLibrary("1", "movie");
+    const second = tools.exportLibrary("1", "movie");
+    await vi.waitFor(() => expect(client.makeRequest).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(client.makeRequest).toHaveBeenCalledTimes(1);
+
+    failFirst(new Error("plex down"));
+
+    await expect(first).rejects.toThrow(/plex down/);
+    const link = (await second).resourceLinks![0];
+    expect(client.makeRequest).toHaveBeenCalledTimes(2);
+    expect(store.list().map((file) => file.uri)).toEqual([link.uri]);
+  });
+
+  // A queued call the client gave up on used to run anyway and evict the exports before it.
+  it("skips a queued export whose call was cancelled while it waited", async () => {
+    let finishFirst!: (value: unknown) => void;
+    client.makeRequest.mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)));
+    const cancel = new AbortController();
+
+    const first = tools.exportLibrary("1", "movie");
+    const second = tools.exportLibrary("1", "movie", undefined, undefined, cancel.signal);
+    await vi.waitFor(() => expect(client.makeRequest).toHaveBeenCalledTimes(1));
+    cancel.abort();
+    finishFirst({ MediaContainer: { totalSize: 1, Metadata: [movie] } });
+
+    const link = (await first).resourceLinks![0];
+    await expect(second).rejects.toThrow("the request was cancelled");
+    expect(client.makeRequest).toHaveBeenCalledTimes(1);
+    expect(store.list().map((file) => file.uri)).toEqual([link.uri]);
+  });
+
+  // A cancelled export used to fetch every remaining page while the session's next export waited.
+  it("aborts the page in flight when the call is cancelled, and the next export runs at once", async () => {
+    const cancel = new AbortController();
+    client.makeRequest
+      .mockResolvedValueOnce({ MediaContainer: { totalSize: 3, Metadata: [movie] } })
+      .mockImplementationOnce(
+        (_endpoint: string, _params: unknown, _method: string, options: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () => reject(new Error("canceled")));
+          })
+      );
+
+    const cancelled = tools.exportLibrary("1", "movie", undefined, undefined, cancel.signal);
+    await vi.waitFor(() => expect(client.makeRequest).toHaveBeenCalledTimes(2));
+    cancel.abort();
+
+    await expect(cancelled).rejects.toThrow("the request was cancelled");
+    expect(client.makeRequest).toHaveBeenCalledTimes(2);
+    const link = (await tools.exportLibrary("1", "movie")).resourceLinks![0];
+    expect(store.list().map((file) => file.uri)).toEqual([link.uri]);
+  });
+
+  it("fetches no further page once the call is cancelled", async () => {
+    const cancel = new AbortController();
+    client.makeRequest.mockImplementationOnce(async () => {
+      cancel.abort();
+      return { MediaContainer: { totalSize: 3, Metadata: [movie] } };
+    });
+
+    await expect(tools.exportLibrary("1", "movie", undefined, undefined, cancel.signal)).rejects.toThrow(
+      "the request was cancelled"
+    );
+    expect(client.makeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  describe("does not show the client a server path when the filesystem fails", () => {
+    const generic = "Failed to export library: the server could not write the export file";
+    let logged: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it("when no export file can be created", async () => {
+      const notADir = path.join(fileRoot, "not-a-directory");
+      await writeFile(notADir, "");
+      const broken = new ExportStore({ root: notADir });
+      try {
+        const failed = new PlexTools(client as unknown as PlexClient, { exportStore: broken }).exportLibrary("1", "movie");
+        await expect(failed).rejects.toThrow(generic);
+        // The details go to the server's log instead.
+        expect(String(logged.mock.calls[0][1])).toContain(notADir);
+      } finally {
+        await broken.dispose();
+        await rm(notADir, { force: true });
+      }
+    });
+
+    it("when the export file is gone before it is published", async () => {
+      client.makeRequest.mockImplementationOnce(async () => {
+        for (const name of await readdir(fileRoot, { recursive: true })) {
+          if (/[A-Za-z0-9]{32}\.json$/.test(name)) await rm(path.join(fileRoot, name));
+        }
+        return { MediaContainer: { totalSize: 1, Metadata: [movie] } };
+      });
+
+      const failed = tools.exportLibrary("1", "movie");
+      await expect(failed).rejects.toThrow(generic);
+      await expect(failed).rejects.not.toThrow(fileRoot);
+    });
+  });
+
+  it("does not publish an export whose call was cancelled while it was written", async () => {
+    const small = new ExportStore({ root: fileRoot, maxBytes: 200 });
+    const smallTools = new PlexTools(client as unknown as PlexClient, { exportStore: small });
+    try {
+      const kept = (await smallTools.exportLibrary("1", "movie")).resourceLinks![0];
+      const cancel = new AbortController();
+      client.makeRequest.mockImplementationOnce(async () => {
+        cancel.abort();
+        return { MediaContainer: { totalSize: 1, Metadata: [movie] } };
+      });
+
+      await expect(smallTools.exportLibrary("1", "movie", undefined, undefined, cancel.signal)).rejects.toThrow(
+        "the request was cancelled"
+      );
+
+      // Publishing it would have evicted the first export, as both do not fit in 200 bytes.
+      expect(small.list().map((file) => file.uri)).toEqual([kept.uri]);
+      // The cancelled export's file was removed, not left behind unlisted.
+      const files = (await readdir(fileRoot, { recursive: true })).filter((name) => name.endsWith(".json"));
+      expect(files.map((name) => path.basename(name))).toEqual([kept.name]);
+    } finally {
+      await small.dispose();
+    }
+  });
+
   it("does not write under ./exports, even when outputPath is given", async () => {
     await tools.exportLibrary("1", "movie", "http-mode-test.json");
     expect(await exists(path.resolve(process.cwd(), "exports", "http-mode-test.json"))).toBe(false);
@@ -493,6 +1048,25 @@ describe("export_library over HTTP (export store)", () => {
 
   it("still validates the library key", async () => {
     await expect(tools.exportLibrary("../x")).rejects.toThrow(/numeric Plex ID/);
+  });
+
+  it("without a store (stdio) names a file after its library and time, uniquely within one millisecond", async () => {
+    const stdioTools = new PlexTools(client as unknown as PlexClient);
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const files: string[] = [];
+    try {
+      const responses = await Promise.all([stdioTools.exportLibrary("1", "movie"), stdioTools.exportLibrary("1", "movie")]);
+      files.push(...responses.map((response) => JSON.parse(response.content[0].text).outputPath as string));
+
+      for (const file of files) {
+        expect(path.basename(file)).toMatch(/^library_1_1700000000000_[A-Za-z0-9]{6}\.json$/);
+        expect(JSON.parse(await readFile(file, "utf8"))).toHaveLength(1);
+      }
+      expect(files[0]).not.toBe(files[1]);
+    } finally {
+      vi.restoreAllMocks();
+      await Promise.all(files.map((file) => rm(file, { force: true })));
+    }
   });
 
   it("without a store (stdio) keeps writing a file and returns its path with no links", async () => {
@@ -511,14 +1085,36 @@ describe("export_library over HTTP (export store)", () => {
 });
 
 describe("toWireResponse", () => {
-  it("appends resource links to content and drops the internal field", () => {
-    const link = { type: "resource_link" as const, uri: "plex-export:///a.json", name: "a.json" };
-    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] });
+  const link = { type: "resource_link" as const, uri: "plex-export:///a.json", name: "a.json" };
+
+  it.each(["2025-06-18", "2025-11-25"])("appends resource links to content and drops the internal field on %s", (version) => {
+    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] }, version);
     expect(wire).toEqual({ content: [{ type: "text", text: "x" }, link] });
+  });
+
+  // #246 item 4: a client from before resource_link (SDK 1.12.3, protocol 2025-03-26)
+  // rejected the whole tool result over the one block it did not know.
+  it.each(["2024-11-05", "2025-03-26"])("sends no resource links to a client on %s", (version) => {
+    const wire = toWireResponse({ content: [{ type: "text", text: "x" }], resourceLinks: [link] }, version);
+    expect(wire).toEqual({ content: [{ type: "text", text: "x" }] });
   });
 
   it("leaves responses without links unchanged", () => {
     const response = { content: [{ type: "text", text: "x" }] };
-    expect(toWireResponse(response)).toEqual(response);
+    expect(toWireResponse(response, "2025-06-18")).toEqual(response);
+  });
+});
+
+describe("protocolVersionOf", () => {
+  it("reads the version a client sends with each HTTP request", () => {
+    expect(protocolVersionOf({ headers: { "mcp-protocol-version": "2025-06-18" } })).toBe("2025-06-18");
+  });
+
+  it("assumes 2025-03-26 when the header is missing, as the spec says", () => {
+    expect(protocolVersionOf({ headers: {} })).toBe("2025-03-26");
+  });
+
+  it("assumes 2025-03-26 over stdio, which has no headers", () => {
+    expect(protocolVersionOf(undefined)).toBe("2025-03-26");
   });
 });

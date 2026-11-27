@@ -9,7 +9,7 @@ describe("ToolRegistry", () => {
 
     expect(registry.has("test_tool")).toBe(true);
     const result = await registry.handle("test_tool", { arg1: "value" });
-    expect(handler).toHaveBeenCalledWith({ arg1: "value" });
+    expect(handler).toHaveBeenCalledWith({ arg1: "value" }, undefined);
     expect(result.content[0].text).toBe("ok");
   });
 

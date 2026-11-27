@@ -89,6 +89,27 @@ different port, and `MCP_PATH` to serve MCP somewhere other than `/mcp` (for
 example `/plex/mcp` behind a reverse proxy). Outside Docker, the `--port` and
 `--path` flags do the same. The health check stays at `/health`.
 
+Over HTTP, `export_library` keeps each export in a temporary directory for its
+session and returns a resource link to it. Clients on a protocol version older
+than 2025-06-18 would reject a result with a link in it, so they get none. They
+read the export with the `resourceUri` from the result's text. A session's exports can take up to
+`PLEX_EXPORT_MAX_BYTES` together (default 262144, which is 256 KiB). A new
+export removes the session's oldest ones until all of them fit, and an export
+larger than the limit fails. A session runs one export at a time, and a second
+one waits for the first. An export whose call the client cancels while it waits
+does not run, and one cancelled while it is written is not published, so neither
+removes the session's other exports. While an export is being written the session can
+use up to twice the limit on disk. A client reads an export in a single response,
+so the limit also caps the memory each read takes. An exported item takes
+roughly 130 bytes for a movie or a track, 180 for a show and 270 for an
+episode, depending on the length of its titles. The default therefore holds
+about 2,000 movies or tracks, 1,400 shows or 950 episodes; raise it if your
+libraries are larger. Exports are deleted when their session ends. After
+`PLEX_EXPORT_MAX_AGE_SECONDS` (default 604800, which is 7 days) an export is
+no longer served, and its file is deleted within the hour. That also covers
+exports left behind by a server that was killed: the HTTP server removes them
+when it starts and then checks every hour.
+
 For an MCP client that launches the server itself over stdio, override the
 command. `--no-healthcheck` turns off the image's HTTP health check, which a
 stdio container never answers:
@@ -134,6 +155,8 @@ The optional Trakt, Sonarr and Radarr variables from
 ```
 
 > **Only `PLEX_TOKEN` is required.** All other credentials are optional — tools for unconfigured services return a clear error message explaining how to set them up, rather than crashing the server.
+
+> **Timeouts:** a request to Plex gives up after `PLEX_API_TIMEOUT_SECONDS` (default 120). Library exports have their own per-page timeout, `PLEX_EXPORT_TIMEOUT_SECONDS` (default 60). Raise it if a large library's pages time out.
 
 > **Sonarr/Radarr API keys** can be found at **Settings > General > API Key** in each app's web UI.
 
@@ -232,7 +255,7 @@ Once configured, you can ask your AI assistant:
 |----------|-------------|
 | `get_libraries` | List all Plex libraries |
 | `get_library_items` | List items in a library with pagination |
-| `export_library` | Export a full library to JSON: written under `./exports` over stdio, returned as an MCP resource link over HTTP |
+| `export_library` | Export a full library to JSON: written under `./exports` over stdio, kept for the session over HTTP and read with `resources/read` from the `resourceUri` in the result, which also carries a resource link for clients on protocol 2025-06-18 or later |
 | `search_media` | Search media globally or within one library |
 | `get_recently_added` | Recently added content; pass `type` and `libraryKey` to list e.g. new episodes (TV is otherwise grouped by season) |
 | `get_on_deck` | Continue watching list |

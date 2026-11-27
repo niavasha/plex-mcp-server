@@ -14,6 +14,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CancelledNotificationSchema, isJSONRPCRequest, type RequestId } from "@modelcontextprotocol/sdk/types.js";
+import { positiveIntFromEnv } from "./utils.js";
 
 export type TransportMode = "stdio" | "http";
 
@@ -85,9 +87,52 @@ interface SessionTransport {
   onclose?: (() => void) | undefined;
 }
 
+/** A POST to a session whose response is still open. */
+export interface OpenPost {
+  res: TrackedResponse;
+  /** Its requests that still await a reply. Undefined until its body has been read. */
+  requestIds?: Set<RequestId>;
+}
+
+/** The parts of a POST's response the store uses. */
+type TrackedResponse = Pick<ServerResponse, "once" | "headersSent" | "writableEnded" | "writeHead" | "end">;
+
 interface SessionEntry {
   transport: SessionTransport;
   lastActivity: number;
+  /** A session is never idle while one of these is still being read or awaits a reply. */
+  openPosts: Set<OpenPost>;
+}
+
+/**
+ * Answers the POSTs a closed session's transport left open. In JSON response mode the
+ * SDK's close() drops what it needs to answer a POST still waiting, a cancelled call's for
+ * instance, so the POST would stay open until the client disconnected, and kept server
+ * shutdown waiting on it. Only POSTs already handed to the SDK, whose body was recorded:
+ * the handler answers one still being read itself, and must not find it answered.
+ */
+function answerOrphanedPosts(entry: SessionEntry): void {
+  for (const { res, requestIds } of entry.openPosts) {
+    if (requestIds === undefined || res.headersSent || res.writableEnded) continue;
+    sendRpcError(res, 404, -32001, "Session not found or expired");
+  }
+}
+
+/** The requests a POST body sends, and the earlier requests it cancels. */
+function readMessages(body: unknown): { requestIds: RequestId[]; cancelledIds: RequestId[] } {
+  const requestIds: RequestId[] = [];
+  const cancelledIds: RequestId[] = [];
+  for (const message of Array.isArray(body) ? body : [body]) {
+    if (isJSONRPCRequest(message)) {
+      requestIds.push(message.id);
+      continue;
+    }
+    const cancelled = CancelledNotificationSchema.safeParse(message);
+    if (cancelled.success && cancelled.data.params.requestId !== undefined) {
+      cancelledIds.push(cancelled.data.params.requestId);
+    }
+  }
+  return { requestIds, cancelledIds };
 }
 
 export interface SessionStoreOptions {
@@ -136,7 +181,7 @@ export class SessionStore {
     if (!this.sessions.has(id) && this.isFull()) {
       throw new SessionLimitError(this.maxSessions);
     }
-    this.sessions.set(id, { transport, lastActivity: this.now() });
+    this.sessions.set(id, { transport, lastActivity: this.now(), openPosts: new Set() });
   }
 
   /** Look up a session, recording the lookup as activity. */
@@ -147,6 +192,48 @@ export class SessionStore {
     return entry.transport;
   }
 
+  /**
+   * Keeps a session from expiring while a POST to it runs, and records its end as activity.
+   * A request can run longer than the idle timeout, a large export for instance, and the
+   * sweeper used to close its session under it. Call it before the first await of the
+   * request, so the response cannot close before the listener is attached, then pass the
+   * returned POST to recordBody() once its body is parsed. Unknown sessions are ignored.
+   */
+  trackRequest(id: string, res: TrackedResponse): OpenPost | undefined {
+    const entry = this.sessions.get(id);
+    if (!entry) return undefined;
+    const post: OpenPost = { res };
+    entry.openPosts.add(post);
+    res.once("close", () => {
+      entry.openPosts.delete(post);
+      entry.lastActivity = this.now();
+    });
+    return post;
+  }
+
+  /**
+   * Records what a POST's body holds: the requests that keep its session busy until they
+   * are answered, and the cancellations that stop earlier ones from doing so. The server
+   * never answers a cancelled request, so its POST stays open until the session closes,
+   * and used to keep the session from ever expiring. Unknown sessions are ignored.
+   */
+  recordBody(id: string, post: OpenPost | undefined, body: unknown): void {
+    const entry = this.sessions.get(id);
+    if (!entry) return;
+    const { requestIds, cancelledIds } = readMessages(body);
+    if (post) post.requestIds = new Set(requestIds);
+    for (const cancelled of cancelledIds) {
+      for (const open of entry.openPosts) open.requestIds?.delete(cancelled);
+    }
+  }
+
+  private isBusy(entry: SessionEntry): boolean {
+    for (const post of entry.openPosts) {
+      if (post.requestIds === undefined || post.requestIds.size > 0) return true;
+    }
+    return false;
+  }
+
   close(id: string): void {
     const entry = this.sessions.get(id);
     if (!entry) return;
@@ -155,7 +242,10 @@ export class SessionStore {
     // here and finds nothing. onclose stays attached, as it is also the only route
     // to the Server's onclose, where per-session cleanup hangs.
     this.sessions.delete(id);
-    void entry.transport.close().catch(() => {});
+    void entry.transport
+      .close()
+      .catch(() => {})
+      .finally(() => answerOrphanedPosts(entry));
   }
 
   /** Close every session idle beyond the timeout. Returns the closed IDs. */
@@ -164,7 +254,7 @@ export class SessionStore {
     const expired: string[] = [];
 
     for (const [id, entry] of this.sessions) {
-      if (entry.lastActivity < deadline) expired.push(id);
+      if (!this.isBusy(entry) && entry.lastActivity < deadline) expired.push(id);
     }
     for (const id of expired) this.close(id);
 
@@ -217,12 +307,12 @@ function stripTrailingSlashes(path: string): string {
   return path.replace(/\/+$/, "") || "/";
 }
 
-function sendJson(res: ServerResponse, status: number, payload: unknown): void {
+function sendJson(res: Pick<ServerResponse, "writeHead" | "end">, status: number, payload: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload));
 }
 
-function sendRpcError(res: ServerResponse, status: number, code: number, message: string): void {
+function sendRpcError(res: Pick<ServerResponse, "writeHead" | "end">, status: number, code: number, message: string): void {
   sendJson(res, status, { jsonrpc: "2.0", error: { code, message }, id: null });
 }
 
@@ -267,6 +357,10 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
     const rawSessionId = req.headers["mcp-session-id"];
     const sessionId = typeof rawSessionId === "string" ? rawSessionId : undefined;
 
+    // Not GET: its SSE stream stays open as long as the client likes, and would keep an
+    // otherwise idle session alive for good.
+    const post = req.method === "POST" && sessionId ? store.trackRequest(sessionId, res) : undefined;
+
     // GET (SSE stream) and DELETE (session teardown) carry no body and always
     // belong to an existing session.
     if (req.method !== "POST") {
@@ -309,6 +403,7 @@ export function createMcpRequestHandler(options: McpHandlerOptions) {
 
     // ── Existing session ──────────────────────────────────────────────────
     if (sessionId) {
+      store.recordBody(sessionId, post, body);
       const transport = store.get(sessionId);
       if (!transport) {
         sendRpcError(res, 404, -32001, "Session not found or expired");
@@ -397,15 +492,8 @@ function parseArgs(): { transport: TransportMode; port: number; mcpPath: string 
   return { transport, port, mcpPath };
 }
 
-function positiveIntFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const value = parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 /**
- * Start the server on the transport selected by argv.
+ * Start the server on the transport selected by argv, and return that transport.
  *
  * Takes a factory rather than an instance: HTTP mode needs a fresh Server per
  * session, and only the caller knows how to build one. The factory is told
@@ -414,7 +502,7 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 export async function startServer(
   buildServer: (transport: TransportMode) => Server,
   serverName: string
-): Promise<void> {
+): Promise<TransportMode> {
   const { transport, port, mcpPath } = parseArgs();
   const getServer = () => buildServer(transport);
 
@@ -422,7 +510,7 @@ export async function startServer(
     // One process, one client, one session — no session tracking needed.
     await getServer().connect(new StdioServerTransport());
     console.error(`${serverName} running on stdio`);
-    return;
+    return transport;
   }
 
   const store = new SessionStore({
@@ -444,4 +532,5 @@ export async function startServer(
   httpServer.listen(port, () => {
     console.error(`${serverName} running on http://localhost:${port}${mcpPath}`);
   });
+  return transport;
 }

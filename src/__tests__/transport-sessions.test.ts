@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -27,6 +28,16 @@ function fakeTransport(sessionId: string) {
     close: vi.fn().mockResolvedValue(undefined),
     onclose: undefined as (() => void) | undefined,
   };
+}
+
+/** A POST's response as the session store sees it: one nobody has answered yet. */
+function fakeResponse() {
+  return Object.assign(new EventEmitter(), {
+    headersSent: false,
+    writableEnded: false,
+    writeHead: vi.fn(),
+    end: vi.fn(),
+  });
 }
 
 /** Turn a string into something shaped like an IncomingMessage. */
@@ -180,6 +191,124 @@ describe("SessionStore", () => {
     store.get("x");
     clock += 300_001;
 
+    expect(store.sweep()).toEqual(["x"]);
+  });
+
+  // #246 item 7: a request longer than the idle timeout lost its session midway.
+  it("does not expire a session while one of its requests runs", () => {
+    const store = makeStore({ idleTimeoutMs: 300_000 });
+    store.add(fakeTransport("x") as never);
+    const res = new EventEmitter();
+
+    store.trackRequest("x", res as never);
+    clock += 3_000_000;
+    expect(store.sweep()).toEqual([]);
+
+    res.emit("close");
+    clock += 300_000;
+    expect(store.sweep()).toEqual([]);
+    clock += 1;
+    expect(store.sweep()).toEqual(["x"]);
+  });
+
+  it("ignores a request for an unknown session", () => {
+    const store = makeStore();
+    expect(() => store.trackRequest("missing", new EventEmitter() as never)).not.toThrow();
+  });
+
+  describe("cancelled requests", () => {
+    const call = (id: number) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "slow" } });
+    const cancel = (requestId: number) => ({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId } });
+
+    /** Sends `body` to session x as one POST, which stays open until the returned emitter closes. */
+    function send(store: SessionStore, body: unknown) {
+      const res = fakeResponse();
+      store.recordBody("x", store.trackRequest("x", res as never), body);
+      return res;
+    }
+
+    // The server never answers a cancelled call, so its POST stayed open and the session never expired.
+    it("expire a session whose only running request was cancelled, though its POST stays open", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      send(store, call(1));
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+
+      send(store, cancel(1)).emit("close");
+      clock += 300_000;
+      expect(store.sweep()).toEqual([]);
+      clock += 1;
+      expect(store.sweep()).toEqual(["x"]);
+    });
+
+    it("keep a batch's session until its other request is answered", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      const batch = send(store, [call(1), call(2)]);
+      send(store, cancel(1)).emit("close");
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+
+      batch.emit("close");
+      clock += 300_001;
+      expect(store.sweep()).toEqual(["x"]);
+    });
+
+    it("do not stop another request from counting as running", () => {
+      const store = makeStore({ idleTimeoutMs: 300_000 });
+      store.add(fakeTransport("x") as never);
+      send(store, call(1));
+      send(store, cancel(2)).emit("close");
+      clock += 600_000;
+      expect(store.sweep()).toEqual([]);
+    });
+
+    it("are ignored for an unknown session", () => {
+      const store = makeStore();
+      expect(() => store.recordBody("missing", undefined, cancel(1))).not.toThrow();
+    });
+  });
+
+  // The SDK's close() never answers a POST still waiting, so it stayed open until the client left.
+  describe("closing a session answers its POSTs the SDK left open", () => {
+    const call = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "slow" } };
+
+    it("with a 404, like any request to a closed session", async () => {
+      const store = makeStore();
+      store.add(fakeTransport("x") as never);
+      const res = fakeResponse();
+      store.recordBody("x", store.trackRequest("x", res as never), call);
+
+      store.close("x");
+
+      await vi.waitFor(() => expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object)));
+      expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({ error: { code: -32001 } });
+    });
+
+    it("but not one still being read, which the handler answers itself, nor one already answered", async () => {
+      const store = makeStore();
+      store.add(fakeTransport("x") as never);
+      const reading = fakeResponse();
+      store.trackRequest("x", reading as never);
+      const answered = Object.assign(fakeResponse(), { headersSent: true });
+      store.recordBody("x", store.trackRequest("x", answered as never), call);
+
+      store.close("x");
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(reading.writeHead).not.toHaveBeenCalled();
+      expect(answered.writeHead).not.toHaveBeenCalled();
+      expect(answered.end).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not count a POST of only notifications as a running request", () => {
+    const store = makeStore({ idleTimeoutMs: 300_000 });
+    store.add(fakeTransport("x") as never);
+    const res = fakeResponse();
+    store.recordBody("x", store.trackRequest("x", res as never), { jsonrpc: "2.0", method: "notifications/initialized" });
+    clock += 300_001;
     expect(store.sweep()).toEqual(["x"]);
   });
 
@@ -489,6 +618,97 @@ describe("a session's Server is told when the session ends", () => {
     await initializeRequest();
 
     await vi.waitFor(() => expect(serverClosed).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("a request that outlasts the idle timeout over the real HTTP handler", () => {
+  let httpServer: HttpServer;
+  let baseUrl: string;
+  let clock: number;
+  let store: SessionStore;
+  let entered: () => void;
+  let release: () => void;
+
+  const post = (body: unknown, sessionId?: string) =>
+    fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(async () => {
+    clock = 1_000_000;
+    store = new SessionStore({ idleTimeoutMs: 300_000, now: () => clock });
+    const handler = createMcpRequestHandler({
+      getServer: () => {
+        const server = buildTestServer();
+        // tools/list waits until the test lets it finish.
+        server.setRequestHandler(ListToolsRequestSchema, async () => {
+          entered();
+          await new Promise<void>((resolve) => (release = resolve));
+          return { tools: [] };
+        });
+        return server;
+      },
+      serverName: "test-server",
+      store,
+    });
+    httpServer = createServer(handler);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    baseUrl = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    store.closeAll();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  it("keeps its session until it ends, then counts idle time from its end", async () => {
+    const init = await post({
+      jsonrpc: "2.0",
+      method: "initialize",
+      id: 1,
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+    });
+    const sessionId = init.headers.get("mcp-session-id")!;
+    const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+
+    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId);
+    await handlerEntered;
+    clock += 600_000;
+    expect(store.sweep()).toEqual([]);
+
+    release();
+    expect((await slow).status).toBe(200);
+    expect(store.sweep()).toEqual([]);
+    clock += 300_001;
+    expect(store.sweep()).toEqual([sessionId]);
+  });
+
+  it("stops keeping its session once the client cancels it", async () => {
+    const init = await post({
+      jsonrpc: "2.0",
+      method: "initialize",
+      id: 1,
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1.0" } },
+    });
+    const sessionId = init.headers.get("mcp-session-id")!;
+    const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+
+    const slow = post({ jsonrpc: "2.0", method: "tools/list", id: 2 }, sessionId);
+    await handlerEntered;
+    const cancelled = await post({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 2 } }, sessionId);
+    expect(cancelled.status).toBe(202);
+    release();
+
+    clock += 300_001;
+    expect(store.sweep()).toEqual([sessionId]);
+    // The SDK never answers a cancelled request, nor ends its POST when the session closes.
+    expect((await slow).status).toBe(404);
   });
 });
 

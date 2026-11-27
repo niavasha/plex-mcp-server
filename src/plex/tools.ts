@@ -9,7 +9,13 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { PlexClient, PlexPagingError } from "./client.js";
 import { MCPResponse, LibraryMovieRecord, TasteProfile } from "./types.js";
-import { ExportStore, type ExportFile } from "./export-store.js";
+import {
+  ExportStore,
+  exportTooLargeError,
+  libraryExportName,
+  randomExportName,
+  type ExportFile,
+} from "./export-store.js";
 import {
   DEFAULT_LIMITS,
   COMPLETION_THRESHOLD,
@@ -26,6 +32,7 @@ import {
   MIN_WATCHED_FOR_RECOMMENDATIONS,
   SMART_PLAYLIST_LIBTYPE_IDS,
   PLEX_TAGGABLE_TYPE_IDS,
+  exportPageTimeoutMs,
 } from "./constants.js";
 import { truncate, validatePlexId, sanitizeSearchQuery, validatePlexMediaContainer, validatePlexTotalSize } from "../shared/utils.js";
 import { formatToolPayload } from "../shared/output-format.js";
@@ -36,6 +43,13 @@ import { formatToolPayload } from "../shared/output-format.js";
  */
 function firstPage(size: number) {
   return { "X-Plex-Container-Start": 0, "X-Plex-Container-Size": size };
+}
+
+/** Stops an export whose call the client cancelled. The client never sees this error. */
+function throwIfExportCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new McpError(ErrorCode.InvalidRequest, "Failed to export library: the request was cancelled");
+  }
 }
 
 /** Helper: wrap a JSON value as an MCP text response */
@@ -221,17 +235,40 @@ export class PlexTools {
     libraryKey: string,
     type?: string,
     outputPath?: string,
-    pageSize: number = DEFAULT_LIMITS.exportPageSize
+    pageSize: number = DEFAULT_LIMITS.exportPageSize,
+    signal?: AbortSignal
   ): Promise<MCPResponse> {
     validatePlexId(libraryKey, "libraryKey");
-
     const exportStore = this.options.exportStore;
-    const exportName = `library_${libraryKey}_${Date.now()}.json`;
+    // Over HTTP a session runs one export at a time, so parallel exports cannot each
+    // take up to the session's whole limit on disk. A call the client gave up on while
+    // it waited does not run: publishing it would evict exports the client still uses.
+    const run = async () => {
+      throwIfExportCancelled(signal);
+      return this.writeLibraryExport(libraryKey, type, outputPath, pageSize, signal);
+    };
+    return exportStore ? exportStore.runExclusive(run) : run();
+  }
+
+  private async writeLibraryExport(
+    libraryKey: string,
+    type: string | undefined,
+    outputPath: string | undefined,
+    pageSize: number,
+    signal: AbortSignal | undefined
+  ): Promise<MCPResponse> {
+    const exportStore = this.options.exportStore;
+    // Over HTTP the name becomes the resource URI, which must not be guessable.
+    const exportName = exportStore ? randomExportName() : libraryExportName(libraryKey);
     const baseExportDir = path.resolve(process.cwd(), "exports");
     let exportPath: string;
     if (exportStore) {
       // The client cannot use a server path, so outputPath is not honoured here.
-      exportPath = await exportStore.reserve(exportName);
+      try {
+        exportPath = await exportStore.reserve(exportName);
+      } catch (error) {
+        throw this.exportFailure(error);
+      }
     } else if (outputPath) {
       if (path.isAbsolute(outputPath)) {
         throw new McpError(ErrorCode.InvalidRequest, "Absolute paths are not allowed for outputPath");
@@ -258,11 +295,24 @@ export class PlexTools {
 
     const safePageSize =
       Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : DEFAULT_LIMITS.exportPageSize;
+    const pageTimeoutMs = exportPageTimeoutMs();
     const stream = createWriteStream(exportPath, { encoding: "utf8" });
     let streamError: Error | null = null;
     stream.once("error", (error) => {
       streamError = error as Error;
     });
+
+    // Over HTTP the export must fit in the session's space. Stop as soon as it cannot,
+    // rather than write the whole file only to refuse it.
+    const maxBytes = exportStore?.maxBytes ?? Infinity;
+    let bytesWritten = 0;
+    const write = (chunk: string) => {
+      bytesWritten += Buffer.byteLength(chunk, "utf8");
+      if (bytesWritten > maxBytes) {
+        throw exportTooLargeError(maxBytes);
+      }
+      return this.writeToStream(stream, chunk);
+    };
 
     let offset = 0;
     let totalSize = 0;
@@ -270,9 +320,11 @@ export class PlexTools {
     let isFirst = true;
 
     try {
-      await this.writeToStream(stream, "[\n");
+      await write("[\n");
 
       while (true) {
+        // A cancelled export stops here, between pages, and the signal below aborts the page in flight.
+        throwIfExportCancelled(signal);
         const params: Record<string, string | number> = {
           "X-Plex-Container-Start": offset,
           "X-Plex-Container-Size": safePageSize,
@@ -281,7 +333,12 @@ export class PlexTools {
           params.type = this.client.getPlexTypeId(type);
         }
 
-        const data = await this.client.makeRequest(`/library/sections/${libraryKey}/all`, params);
+        const data = await this.client.makeRequest(
+          `/library/sections/${libraryKey}/all`,
+          params,
+          "GET",
+          { timeout: pageTimeoutMs, signal }
+        );
         const container = data as {
           MediaContainer?: { Metadata?: Record<string, unknown>[]; totalSize?: number };
         };
@@ -290,11 +347,10 @@ export class PlexTools {
 
         for (const item of items) {
           if (!isFirst) {
-            await this.writeToStream(stream, ",\n");
+            await write(",\n");
           }
 
-          await this.writeToStream(
-            stream,
+          await write(
             JSON.stringify({
               ratingKey: item.ratingKey,
               title: item.title,
@@ -316,16 +372,17 @@ export class PlexTools {
         }
       }
 
-      await this.writeToStream(stream, "\n]\n");
+      await write("\n]\n");
       await this.finishStream(stream);
     } catch (error) {
+      // Read before destroy(): destroying with a write still buffered makes the stream
+      // emit an error of its own, which would hide the real cause.
+      const failure = error instanceof McpError ? error : this.exportFailure(streamError || error);
       stream.destroy();
       await rm(exportPath, { force: true }).catch(() => undefined);
-      if (error instanceof McpError) {
-        throw error;
-      }
-      const message = this.getErrorMessage(streamError || error);
-      throw new McpError(ErrorCode.InternalError, `Failed to export library: ${message}`);
+      // An aborted page request fails with axios's "canceled", which is not a server fault.
+      throwIfExportCancelled(signal);
+      throw failure;
     }
 
     const exportType = type || "all";
@@ -334,11 +391,13 @@ export class PlexTools {
     if (exportStore) {
       let file: ExportFile;
       try {
+        // Publishing evicts older exports, which a cancelled call must not do.
+        throwIfExportCancelled(signal);
         file = await exportStore.publish(exportName);
       } catch (error) {
         // Most likely the session closed while the export ran.
         await rm(exportPath, { force: true }).catch(() => undefined);
-        throw new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
+        throw this.exportFailure(error);
       }
       return {
         ...jsonResponse({
@@ -1648,6 +1707,20 @@ export class PlexTools {
 
   private getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * The error a failed export reports. A filesystem error names a file on the server, which
+   * an HTTP client must not see, so it gets a generic message and the details go to the log.
+   * Over stdio the client runs on the same machine and the path helps, so it is kept.
+   */
+  private exportFailure(error: unknown): McpError {
+    if (error instanceof McpError) return error;
+    if (this.options.exportStore && typeof (error as NodeJS.ErrnoException | undefined)?.path === "string") {
+      console.error("Library export failed:", error);
+      return new McpError(ErrorCode.InternalError, "Failed to export library: the server could not write the export file");
+    }
+    return new McpError(ErrorCode.InternalError, `Failed to export library: ${this.getErrorMessage(error)}`);
   }
 
   private parseResponseText(response: MCPResponse): Record<string, unknown> | undefined {
